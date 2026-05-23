@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Home, Calendar, MessageSquare, Trophy } from 'lucide-react';
+import { Home, Calendar, MessageSquare, Shield, Trophy, Building2 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 const NavItem = ({ icon, label, to }: { icon: React.ReactNode, label: string, to: string }) => {
     const location = useLocation();
@@ -21,12 +22,20 @@ const AiButton = () => (
 );
 
 const BottomNav = () => {
+    const { user } = useAuth();
+
     return (
         <footer style={styles.footer}>
             <NavItem icon={<Home />} label="Home" to="/" />
             <NavItem icon={<Calendar />} label="Events" to="/events" />
             <AiButton />
-            <NavItem icon={<MessageSquare />} label="Chat" to="/chat" />
+            {user?.role === 'Admin' ? (
+                <NavItem icon={<Shield />} label="Admin" to="/admin" />
+            ) : user?.role === 'club_admin' ? (
+                <NavItem icon={<Building2 />} label="Club" to="/club" />
+            ) : (
+                <NavItem icon={<MessageSquare />} label="Chat" to="/chat" />
+            )}
             <NavItem icon={<Trophy />} label="Leaderboard" to="/leaderboard" />
         </footer>
     );

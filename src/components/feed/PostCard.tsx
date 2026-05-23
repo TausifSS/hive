@@ -1,105 +1,210 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Heart, MessageSquare, Repeat, BookmarkPlus, X } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
+import { addPostComment, likePost, savePost } from '../../lib/api';
+import type { Post } from '../../lib/api';
 
-// Chota component har action button ke liye
 const ActionButton = ({ icon, label, onClick }: { icon: React.ReactNode, label: string, onClick?: () => void }) => (
-    <div style={styles.actionButton} onClick={onClick}>
+    <button type="button" style={styles.actionButton} onClick={onClick}>
         {icon}
         <span style={styles.actionLabel}>{label}</span>
-    </div>
+    </button>
 );
 
-// Naye props add kiye hain media ke liye
 interface PostCardProps {
-    hasMedia?: boolean; // Simple flag to show/hide media
+    post: Post;
+    onPostUpdated: (post: Post) => void;
 }
 
-const PostCard = ({ hasMedia = false }: PostCardProps) => {
-    // --- NAYI LOGIC YAHAN HAI ---
-    const [likes, setLikes] = useState(145); // Shuruwati likes
-    const [isLiked, setIsLiked] = useState(false);
-    const [showComments, setShowComments] = useState(false); // Comment popup ke liye state
+const formatTimestamp = (value: string) => {
+    const createdAt = new Date(value).getTime();
+    const diffMinutes = Math.max(1, Math.round((Date.now() - createdAt) / 60000));
 
-    const handleLike = () => {
-        setIsLiked(!isLiked);
-        setLikes(isLiked ? likes - 1 : likes + 1);
+    if (diffMinutes < 60) return `${diffMinutes}m ago`;
+    if (diffMinutes < 1440) return `${Math.round(diffMinutes / 60)}h ago`;
+    return new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+};
+
+const PostCard = ({ post, onPostUpdated }: PostCardProps) => {
+    const { user } = useAuth();
+    const [showComments, setShowComments] = useState(false);
+    const [commentText, setCommentText] = useState('');
+    const [error, setError] = useState('');
+    const [statusText, setStatusText] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+    const isLiked = Boolean(user && post.likes.includes(user.id));
+    const isSaved = Boolean(user && post.savedBy.includes(user.id));
+    const authorProfilePath = `/profile/${post.author?.id || post.authorId}`;
+
+    const handleLike = async () => {
+        setError('');
+        try {
+            const response = await likePost(post.id);
+            onPostUpdated(response.post);
+        } catch (likeError) {
+            setError(likeError instanceof Error ? likeError.message : 'Unable to update like');
+        }
     };
-    // --- LOGIC END ---
+
+    const handleSave = async () => {
+        setError('');
+        setStatusText('');
+        try {
+            const response = await savePost(post.id);
+            onPostUpdated(response.post);
+            setStatusText(isSaved ? 'Removed from saved posts' : 'Saved post');
+        } catch (saveError) {
+            setError(saveError instanceof Error ? saveError.message : 'Unable to save post');
+        }
+    };
+
+    const handleShare = async () => {
+        const shareText = `${post.author?.name || 'HIVE'} on HIVE: ${post.content}`;
+        setError('');
+        setStatusText('');
+
+        try {
+            if (navigator.share) {
+                await navigator.share({ title: 'HIVE post', text: shareText });
+                setStatusText('Share sheet opened');
+                return;
+            }
+
+            await navigator.clipboard.writeText(shareText);
+            setStatusText('Post text copied');
+        } catch {
+            setError('Unable to share from this browser');
+        }
+    };
+
+    const handleAddComment = async () => {
+        const content = commentText.trim();
+        if (!content) return;
+
+        setError('');
+        setIsSaving(true);
+
+        try {
+            const response = await addPostComment(post.id, content);
+            onPostUpdated(response.post);
+            setCommentText('');
+        } catch (commentError) {
+            setError(commentError instanceof Error ? commentError.message : 'Unable to add comment');
+        } finally {
+            setIsSaving(false);
+        }
+    };
 
     return (
         <>
             <div style={styles.card}>
-                {/* Post ka Header (No Change) */}
                 <div style={styles.header}>
-                    <div style={styles.profilePic}></div>
-                    <div style={styles.authorInfo}>
-                        <p style={styles.authorName}>Student Name</p>
-                        <p style={styles.timestamp}>Just now</p>
-                    </div>
+                    <Link to={authorProfilePath} style={styles.authorLink}>
+                        {post.author?.avatarUrl ? (
+                            <img src={post.author.avatarUrl} alt={post.author.name} style={styles.profilePicImage} />
+                        ) : (
+                            <div style={styles.profilePic}></div>
+                        )}
+                        <div style={styles.authorInfo}>
+                            <p style={styles.authorName}>{post.author?.name || 'Student Name'}</p>
+                            <p style={styles.timestamp}>{formatTimestamp(post.createdAt)}</p>
+                        </div>
+                    </Link>
                 </div>
-                {/* Post ka Content (No Change) */}
-                <p style={styles.content}>
-                    This is where the post content will go. It will come from the backend automatically. #Placeholder #Success
-                </p>
-                
-                {/* Media (No Change) */}
-                {hasMedia && (
+
+                <p style={styles.content}>{post.content}</p>
+
+                {post.mediaUrl && (
                     <div style={styles.mediaContainer}>
-                        <img 
-                            src="https://placehold.co/600x400/E5E7EB/9CA3AF?text=Post+Image"
-                            alt="Post media"
-                            style={styles.mediaImage}
-                        />
+                        {post.mediaUrl.startsWith('data:video/') ? (
+                            <video src={post.mediaUrl} style={styles.mediaImage} controls />
+                        ) : (
+                            <img
+                                src={post.mediaUrl}
+                                alt="Post media"
+                                style={styles.mediaImage}
+                            />
+                        )}
                     </div>
                 )}
-                
-                {/* YEH NAYI CHEEZ HAI: Likes aur Comments ka count */}
+
                 <div style={styles.statsContainer}>
-                    <span style={styles.likesCount}>{likes} likes</span>
-                    <span style={styles.commentsCount} onClick={() => setShowComments(true)}>View all comments</span>
+                    <span style={styles.likesCount}>{post.likesCount} likes</span>
+                    <span>{post.savedCount} saved</span>
+                    <span style={styles.commentsCount} onClick={() => setShowComments(true)}>
+                        {post.commentsCount === 0 ? 'No comments yet' : `View ${post.commentsCount} comments`}
+                    </span>
                 </div>
+
+                {error && <p style={styles.errorText}>{error}</p>}
+                {statusText && <p style={styles.statusText}>{statusText}</p>}
 
                 <hr style={styles.divider} />
 
-                {/* Action Buttons (Ab inmein onClick hai) */}
                 <div style={styles.actionsContainer}>
                     <div style={styles.leftActions}>
-                        <ActionButton 
-                            icon={<Heart size={22} color={isLiked ? '#FF3040' : '#4B5563'} fill={isLiked ? '#FF3040' : 'none'} />} 
-                            label="Like" 
-                            onClick={handleLike} 
+                        <ActionButton
+                            icon={<Heart size={22} color={isLiked ? '#FF3040' : '#4B5563'} fill={isLiked ? '#FF3040' : 'none'} />}
+                            label="Like"
+                            onClick={handleLike}
                         />
-                        <ActionButton 
-                            icon={<MessageSquare size={22} />} 
-                            label="Comment" 
+                        <ActionButton
+                            icon={<MessageSquare size={22} />}
+                            label="Comment"
                             onClick={() => setShowComments(true)}
                         />
-                        <ActionButton icon={<Repeat size={22} />} label="Share" />
+                        <ActionButton icon={<Repeat size={22} />} label="Share" onClick={handleShare} />
                     </div>
-                    <button style={styles.saveButton}>
-                        <BookmarkPlus size={18} />
+                    <button
+                        type="button"
+                        aria-label={isSaved ? 'Unsave post' : 'Save post'}
+                        style={{ ...styles.saveButton, ...(isSaved ? styles.savedButton : {}) }}
+                        onClick={handleSave}
+                    >
+                        <BookmarkPlus size={18} fill={isSaved ? 'currentColor' : 'none'} />
                     </button>
                 </div>
             </div>
 
-            {/* --- YEH NAYA COMMENT POPUP HAI --- */}
             {showComments && (
                 <div style={styles.modalBackdrop} onClick={() => setShowComments(false)}>
                     <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
                         <div style={styles.modalHeader}>
-                            <h3 style={{margin: 0}}>Comments</h3>
+                            <h3 style={styles.modalTitle}>Comments</h3>
                             <button style={styles.closeButton} onClick={() => setShowComments(false)}>
                                 <X size={24} />
                             </button>
                         </div>
                         <div style={styles.commentsList}>
-                            {/* Yahan comments aayenge */}
-                            <p>This is a comment...</p>
-                            <p>This is another comment...</p>
+                            {post.comments.length === 0 ? (
+                                <p style={styles.emptyComments}>Start the conversation.</p>
+                            ) : (
+                                post.comments.map((comment) => (
+                                    <div key={comment.id} style={styles.commentItem}>
+                                        <Link to={`/profile/${comment.author?.id || comment.authorId}`} style={styles.commentAuthor}>
+                                            {comment.author?.name || 'Student'}
+                                        </Link>
+                                        <p style={styles.commentContent}>{comment.content}</p>
+                                    </div>
+                                ))
+                            )}
                         </div>
                         <div style={styles.commentInputContainer}>
-                            <input type="text" placeholder="Add a comment..." style={styles.commentInput} />
-                            <button style={styles.postCommentButton}>Post</button>
+                            <input
+                                type="text"
+                                placeholder="Add a comment..."
+                                value={commentText}
+                                onChange={(event) => setCommentText(event.target.value)}
+                                style={styles.commentInput}
+                            />
+                            <button
+                                style={{ ...styles.postCommentButton, ...(isSaving ? styles.disabledButton : {}) }}
+                                onClick={handleAddComment}
+                                disabled={isSaving}
+                            >
+                                Post
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -107,7 +212,6 @@ const PostCard = ({ hasMedia = false }: PostCardProps) => {
         </>
     );
 };
-
 
 const styles: { [key: string]: React.CSSProperties } = {
     card: {
@@ -119,33 +223,41 @@ const styles: { [key: string]: React.CSSProperties } = {
         marginBottom: '16px',
     },
     header: { display: 'flex', alignItems: 'center', marginBottom: '10px' },
+    authorLink: { display: 'flex', alignItems: 'center', color: 'inherit', textDecoration: 'none' },
     profilePic: { width: '40px', height: '40px', borderRadius: '50%', marginRight: '10px', backgroundColor: '#F3F4F6' },
+    profilePicImage: { width: '40px', height: '40px', borderRadius: '50%', marginRight: '10px', objectFit: 'cover' },
     authorInfo: { display: 'flex', flexDirection: 'column' },
     authorName: { margin: 0, fontWeight: '600', fontSize: '15px' },
     timestamp: { margin: 0, fontSize: '12px', color: '#6B7280' },
     content: { margin: '0 0 10px 0', fontSize: '15px', color: '#374151', lineHeight: 1.5 },
     mediaContainer: { margin: '10px 0', borderRadius: '8px', overflow: 'hidden' },
-    mediaImage: { width: '100%', display: 'block' },
+    mediaImage: { width: '100%', display: 'block', maxHeight: '520px', objectFit: 'cover' },
     statsContainer: { display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: '13px', color: '#6B7280' },
     likesCount: { fontWeight: '600' },
     commentsCount: { cursor: 'pointer' },
+    errorText: { color: '#DC2626', fontSize: '13px', margin: '4px 0' },
+    statusText: { color: '#047857', fontSize: '13px', margin: '4px 0' },
     divider: { border: 'none', borderTop: '1px solid #F3F4F6', margin: '8px 0' },
     actionsContainer: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
     leftActions: { display: 'flex', alignItems: 'center', gap: '20px' },
-    actionButton: { display: 'flex', alignItems: 'center', gap: '6px', color: '#4B5563', cursor: 'pointer', fontSize: '14px' },
+    actionButton: { display: 'flex', alignItems: 'center', gap: '6px', color: '#4B5563', cursor: 'pointer', fontSize: '14px', border: 'none', backgroundColor: 'transparent', padding: 0 },
     actionLabel: { fontWeight: 500 },
-    saveButton: { padding: '8px', backgroundColor: 'transparent', border: 'none', cursor: 'pointer', },
-    
-    // --- Comment Modal Styles ---
-    modalBackdrop: { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0, 0, 0, 0.5)', display: 'flex', justifyContent: 'center', alignItems: 'flex-end', zIndex: 1000, },
+    saveButton: { padding: '8px', backgroundColor: 'transparent', border: 'none', cursor: 'pointer' },
+    savedButton: { color: 'var(--brand-purple)' },
+    modalBackdrop: { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0, 0, 0, 0.5)', display: 'flex', justifyContent: 'center', alignItems: 'flex-end', zIndex: 1000 },
     modalContent: { backgroundColor: 'white', width: '100%', maxWidth: '450px', height: '70vh', borderTopLeftRadius: '20px', borderTopRightRadius: '20px', display: 'flex', flexDirection: 'column' },
     modalHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', borderBottom: '1px solid #E5E7EB' },
+    modalTitle: { margin: 0 },
     closeButton: { background: 'none', border: 'none', cursor: 'pointer' },
     commentsList: { flexGrow: 1, overflowY: 'auto', padding: '16px' },
+    commentItem: { padding: '10px 0', borderBottom: '1px solid #F3F4F6' },
+    commentAuthor: { color: '#111827', fontWeight: 700, textDecoration: 'none' },
+    commentContent: { margin: '4px 0 0 0', color: '#374151' },
+    emptyComments: { color: '#6B7280', textAlign: 'center' },
     commentInputContainer: { display: 'flex', padding: '12px', borderTop: '1px solid #E5E7EB' },
     commentInput: { flexGrow: 1, border: '1px solid #E5E7EB', borderRadius: '20px', padding: '8px 12px', marginRight: '8px' },
     postCommentButton: { background: 'var(--brand-purple, #8B5CF6)', color: 'white', border: 'none', borderRadius: '8px', padding: '8px 16px', cursor: 'pointer' },
+    disabledButton: { opacity: 0.65, cursor: 'not-allowed' },
 };
 
 export default PostCard;
-

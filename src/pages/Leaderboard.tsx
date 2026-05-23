@@ -1,8 +1,33 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import LeaderboardItem from '../components/leaderboard/LeaderboardItem';
+import { useAuth } from '../context/AuthContext';
+import { getLeaderboard } from '../lib/api';
+import type { LeaderboardUser } from '../lib/api';
 
 const LeaderboardPage = () => {
+    const { user } = useAuth();
     const [activeFilter, setActiveFilter] = useState('weekly');
+    const [users, setUsers] = useState<LeaderboardUser[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState('');
+
+    const loadLeaderboard = async () => {
+        setIsLoading(true);
+        setError('');
+
+        try {
+            const response = await getLeaderboard();
+            setUsers(response.users);
+        } catch (leaderboardError) {
+            setError(leaderboardError instanceof Error ? leaderboardError.message : 'Unable to load leaderboard');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        void loadLeaderboard();
+    }, [activeFilter]);
 
     return (
         <div style={styles.container}>
@@ -12,31 +37,44 @@ const LeaderboardPage = () => {
             </div>
 
             <div style={styles.filterContainer}>
-                <button 
+                <button
                     onClick={() => setActiveFilter('weekly')}
-                    style={{...styles.filterButton, ...(activeFilter === 'weekly' ? styles.activeFilter : {})}}>
+                    style={{ ...styles.filterButton, ...(activeFilter === 'weekly' ? styles.activeFilter : {}) }}>
                     Weekly
                 </button>
-                <button 
+                <button
                     onClick={() => setActiveFilter('monthly')}
-                    style={{...styles.filterButton, ...(activeFilter === 'monthly' ? styles.activeFilter : {})}}>
+                    style={{ ...styles.filterButton, ...(activeFilter === 'monthly' ? styles.activeFilter : {}) }}>
                     Monthly
                 </button>
-                <button 
+                <button
                     onClick={() => setActiveFilter('all-time')}
-                    style={{...styles.filterButton, ...(activeFilter === 'all-time' ? styles.activeFilter : {})}}>
+                    style={{ ...styles.filterButton, ...(activeFilter === 'all-time' ? styles.activeFilter : {}) }}>
                     All Time
                 </button>
             </div>
 
             <div style={styles.listContainer}>
-                {/* Yahan backend se data aane ke baad hum .map() use karenge */}
-                {/* Abhi ke liye, structure dikhane ke liye aese add kar rahe hain */}
-                <LeaderboardItem rank={1} name="Yash Parse" points={1250} isCurrentUser={true} />
-                <LeaderboardItem rank={2} name="Alex Chen" points={1180} />
-                <LeaderboardItem rank={3} name="Shraddha K" points={1150} />
-                <LeaderboardItem rank={4} name="Tausif Shaikh" points={1020} />
-                <LeaderboardItem rank={5} name="Vaibhav P" points={980} />
+                {isLoading ? (
+                    <div style={styles.messageBox}>Loading leaderboard...</div>
+                ) : error ? (
+                    <div style={styles.messageBox}>
+                        <p style={styles.errorText}>{error}</p>
+                        <button style={styles.retryButton} onClick={loadLeaderboard}>Try Again</button>
+                    </div>
+                ) : users.length === 0 ? (
+                    <div style={styles.messageBox}>No points yet.</div>
+                ) : (
+                    users.map((leaderboardUser) => (
+                        <LeaderboardItem
+                            key={leaderboardUser.id}
+                            rank={leaderboardUser.rank}
+                            name={leaderboardUser.name}
+                            points={leaderboardUser.points || 0}
+                            isCurrentUser={leaderboardUser.id === user?.id}
+                        />
+                    ))
+                )}
             </div>
         </div>
     );
@@ -85,9 +123,28 @@ const styles: { [key: string]: React.CSSProperties } = {
         color: 'var(--brand-purple)',
         boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
     },
-    listContainer: {
-        // Future use
-    }
+    listContainer: {},
+    messageBox: {
+        backgroundColor: '#FFFFFF',
+        border: '1px solid #E5E7EB',
+        borderRadius: '12px',
+        color: '#6B7280',
+        padding: '20px',
+        textAlign: 'center',
+    },
+    errorText: {
+        color: '#DC2626',
+        margin: '0 0 12px 0',
+    },
+    retryButton: {
+        padding: '8px 14px',
+        border: 'none',
+        borderRadius: '8px',
+        backgroundColor: 'var(--brand-purple)',
+        color: 'white',
+        fontWeight: '600',
+        cursor: 'pointer',
+    },
 };
 
 export default LeaderboardPage;

@@ -1,42 +1,44 @@
 import React from 'react';
 import { UserCircle } from 'lucide-react';
 import { Link } from 'react-router-dom'; // Link import kiya
+import { useAuth } from '../../context/AuthContext';
 
-const SuggestionItem = ({ name, handle }: { name: string, handle: string }) => (
-    <div style={styles.suggestionItem}>
-        <div style={styles.suggestionAvatar}></div>
-        <div>
-            <p style={styles.suggestionName}>{name}</p>
-            <p style={styles.suggestionHandle}>@{handle}</p>
-        </div>
-        <button style={styles.followButton}>Follow</button>
-    </div>
-);
+const roleLabels = {
+    student: 'Student',
+    club_admin: 'Club Lead / Teacher',
+    Admin: 'College Admin',
+};
 
 const RightSidebar = () => {
+    const { user, logout } = useAuth();
+
     return (
         <aside style={styles.sidebar}>
             {/* Profile Section - Ab yeh poora section ek link hai */}
             <Link to="/PCprofile" style={{ textDecoration: 'none', color: 'inherit' }}>
                 <div style={styles.profileContainer}>
-                    <UserCircle size={56} color="#4B5563" strokeWidth={1} />
+                    {user?.avatarUrl ? (
+                        <img src={user.avatarUrl} alt={user.name} style={styles.profileAvatar} />
+                    ) : (
+                        <UserCircle size={56} color="#4B5563" strokeWidth={1} />
+                    )}
                     <div>
-                        <p style={styles.profileName}>Yash Parse</p>
-                        <p style={styles.profileHandle}>@yashparse</p>
+                        <p style={styles.profileName}>{user?.name || 'HIVE User'}</p>
+                        <p style={styles.profileHandle}>@{user?.handle || user?.id}</p>
                     </div>
-                    <button style={styles.switchButton}>Switch</button>
                 </div>
             </Link>
 
-            {/* Suggestions Section */}
             <div style={styles.suggestionsContainer}>
                 <div style={styles.suggestionsHeader}>
-                    <p style={styles.suggestionsTitle}>Suggested for you</p>
-                    <a href="#" style={styles.seeAllLink}>See All</a>
+                    <p style={styles.suggestionsTitle}>{roleLabels[user?.role || 'student']}</p>
+                    <button onClick={logout} style={styles.seeAllLink}>Logout</button>
                 </div>
-                <SuggestionItem name="Tausif Shaikh" handle="tausifshaikh" />
-                <SuggestionItem name="Shraddha K" handle="shraddhak" />
-                <SuggestionItem name="Vaibhav P" handle="vaibhavp" />
+                <div style={styles.infoCard}>
+                    {user?.role === 'Admin' && 'You can manage users, block accounts, and assign roles from the Admin panel.'}
+                    {user?.role === 'club_admin' && 'You can create and manage campus events as a Club Lead or teacher.'}
+                    {user?.role === 'student' && 'Participate in events, post updates, and grow your leaderboard points.'}
+                </div>
             </div>
         </aside>
     );
@@ -68,13 +70,11 @@ const styles: { [key: string]: React.CSSProperties } = {
         color: '#6B7280',
         margin: 0,
     },
-    switchButton: {
-        marginLeft: 'auto',
-        background: 'none',
-        border: 'none',
-        color: 'var(--brand-purple)',
-        fontWeight: '600',
-        cursor: 'pointer',
+    profileAvatar: {
+        width: '56px',
+        height: '56px',
+        borderRadius: '50%',
+        objectFit: 'cover',
     },
     suggestionsContainer: {
         // Container ke liye styles agar zaroorat pade
@@ -94,39 +94,20 @@ const styles: { [key: string]: React.CSSProperties } = {
     seeAllLink: {
         fontSize: '13px',
         fontWeight: '600',
-        color: '#111827',
-        textDecoration: 'none',
-    },
-    suggestionItem: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '12px',
-        marginBottom: '16px',
-    },
-    suggestionAvatar: {
-        width: '40px',
-        height: '40px',
-        borderRadius: '50%',
-        backgroundColor: '#E5E7EB',
-    },
-    suggestionName: {
-        fontSize: '14px',
-        fontWeight: '600',
-        margin: 0,
-    },
-    suggestionHandle: {
-        fontSize: '13px',
-        color: '#6B7280',
-        margin: 0,
-    },
-    followButton: {
-        marginLeft: 'auto',
         background: 'none',
         border: 'none',
         color: 'var(--brand-purple)',
-        fontWeight: '600',
         cursor: 'pointer',
-    }
+    },
+    infoCard: {
+        padding: '16px',
+        borderRadius: '12px',
+        backgroundColor: '#FFFFFF',
+        border: '1px solid #E5E7EB',
+        color: '#374151',
+        lineHeight: 1.5,
+        fontSize: '14px',
+    },
 };
 
 export default RightSidebar;

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Home, Calendar, Bot, MessageSquare, Trophy, Newspaper } from 'lucide-react';
+import { Home, Calendar, Bot, MessageSquare, Trophy, Newspaper, Shield, Building2 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 
 // NavItem component ab Link ban jayega
 const NavItem = ({ icon, title, subtitle, to }: { icon: React.ReactNode, title: string, subtitle: string, to: string }) => {
@@ -19,14 +20,19 @@ const NavItem = ({ icon, title, subtitle, to }: { icon: React.ReactNode, title: 
 };
 
 const LeftSidebar = () => {
+    const { user } = useAuth();
     const navItems = [
         { icon: <Home size={24} />, title: 'Home', subtitle: 'Student Feed', to: '/' },
+        ...(['club_admin', 'Admin'].includes(user?.role || '') ? [{ icon: <Building2 size={24} />, title: 'Club Panel', subtitle: 'Club Tools', to: '/club' }] : []),
         { icon: <Calendar size={24} />, title: 'Events', subtitle: 'Campus Events', to: '/events' },
         { icon: <Bot size={24} />, title: 'Hey GHR', subtitle: 'AI Assistant', to: '/ai' },
         { icon: <MessageSquare size={24} />, title: 'Social Chat', subtitle: 'Community Help', to: '/chat' },
         { icon: <Trophy size={24} />, title: 'Leaderboard', subtitle: 'Rankings', to: '/leaderboard' },
         { icon: <Newspaper size={24} />, title: 'Top Stories', subtitle: 'Official Updates', to: '/top-stories' },
     ];
+    if (user?.role === 'Admin') {
+        navItems.push({ icon: <Shield size={24} />, title: 'Admin', subtitle: 'User Control', to: '/admin' });
+    }
     
     return (
         <aside style={styles.sidebar}>
@@ -46,9 +52,9 @@ const LeftSidebar = () => {
                 <Trophy size={24} color="#F97316" />
                 <div style={{ flex: 1 }}>
                     <p style={styles.pointsTitle}>Your Points</p>
-                    <p style={styles.pointsValue}>0</p>
+                    <p style={styles.pointsValue}>{user?.points || 0}</p>
                 </div>
-                <p style={styles.pointsSubtitle}>Keep participating!</p>
+                <p style={styles.pointsSubtitle}>{user?.role === 'club_admin' ? 'Club Lead tools active' : user?.role === 'Admin' ? 'College Admin mode' : 'Keep participating!'}</p>
             </div>
         </aside>
     );

@@ -1,32 +1,97 @@
-import React from 'react';
+import { useEffect, useState } from 'react';
+import type { CSSProperties } from 'react';
+import { ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
+import { getTopStories } from '../lib/api';
+import type { TopStory } from '../lib/api';
 
-// Ek chota component ek single story card ke liye
-const StoryCard = ({ title, summary }: { title: string, summary: string }) => (
-    <div style={styles.storyCard}>
-        <h2 style={styles.storyTitle}>{title}</h2>
-        <p style={styles.storySummary}>{summary}</p>
-        <button style={styles.readMoreButton}>Read More</button>
-    </div>
+const formatStoryDate = (date: string) =>
+    new Date(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+
+const StoryCard = ({ story, isExpanded, onToggle }: { story: TopStory; isExpanded: boolean; onToggle: () => void }) => (
+    <article style={styles.storyCard}>
+        <div style={styles.storyMeta}>
+            <span style={styles.category}>{story.category}</span>
+            <span>{formatStoryDate(story.createdAt)}</span>
+        </div>
+        <h2 style={styles.storyTitle}>{story.title}</h2>
+        <p style={styles.storySummary}>{story.summary}</p>
+        {isExpanded && <p style={styles.storyBody}>{story.body}</p>}
+        <button style={styles.readMoreButton} onClick={onToggle}>
+            {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+            {isExpanded ? 'Show Less' : 'Read More'}
+        </button>
+    </article>
 );
 
 const TopStoriesPage = () => {
+    const [stories, setStories] = useState<TopStory[]>([]);
+    const [expandedStoryId, setExpandedStoryId] = useState<string | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState('');
+
+    const loadStories = async () => {
+        setIsLoading(true);
+        setError('');
+
+        try {
+            const response = await getTopStories();
+            setStories(response.stories);
+        } catch (storyError) {
+            setError(storyError instanceof Error ? storyError.message : 'Unable to load top stories');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        void loadStories();
+    }, []);
+
     return (
         <div style={styles.container}>
-            <h1 style={styles.pageTitle}>Top Stories</h1>
-            <p style={styles.pageSubtitle}>All the latest news and announcements from the college.</p>
-            <div style={styles.storiesGrid}>
-                {/* Yahan backend se data aane ke baad .map() use karenge */}
-                <StoryCard title="Annual Tech Fest 'Innovate 2025' Announced" summary="Get ready for the biggest tech event of the year, featuring coding competitions, workshops, and guest lectures from industry experts." />
-                <StoryCard title="New Campus Library Now Open 24/7" summary="The new state-of-the-art library is now accessible to all students around the clock for their academic needs." />
-                <StoryCard title="Sports Day Trials Begin Next Week" summary="Registrations are now open for all athletic events. Showcase your talent and bring glory to your department!" />
+            <div style={styles.header}>
+                <div>
+                    <h1 style={styles.pageTitle}>Top Stories</h1>
+                    <p style={styles.pageSubtitle}>Official updates from the HIVE backend.</p>
+                </div>
+                <button style={styles.refreshButton} onClick={loadStories} disabled={isLoading}>
+                    <RefreshCw size={16} />
+                    Refresh
+                </button>
             </div>
+
+            {isLoading ? (
+                <div style={styles.messageBox}>Loading stories...</div>
+            ) : error ? (
+                <div style={styles.errorBox}>{error}</div>
+            ) : stories.length === 0 ? (
+                <div style={styles.messageBox}>No official updates published yet.</div>
+            ) : (
+                <div style={styles.storiesGrid}>
+                    {stories.map((story) => (
+                        <StoryCard
+                            key={story.id}
+                            story={story}
+                            isExpanded={expandedStoryId === story.id}
+                            onToggle={() => setExpandedStoryId((currentId) => currentId === story.id ? null : story.id)}
+                        />
+                    ))}
+                </div>
+            )}
         </div>
     );
 };
 
-const styles: { [key: string]: React.CSSProperties } = {
+const styles: { [key: string]: CSSProperties } = {
     container: {
-        padding: '16px',
+        padding: '24px',
+    },
+    header: {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '16px',
+        marginBottom: '24px',
     },
     pageTitle: {
         fontSize: '28px',
@@ -36,7 +101,19 @@ const styles: { [key: string]: React.CSSProperties } = {
     pageSubtitle: {
         fontSize: '16px',
         color: 'var(--text-secondary)',
-        margin: '0 0 24px 0',
+        margin: 0,
+    },
+    refreshButton: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        border: '1px solid #E5E7EB',
+        borderRadius: '10px',
+        backgroundColor: 'white',
+        color: '#374151',
+        padding: '10px 14px',
+        fontWeight: 700,
+        cursor: 'pointer',
     },
     storiesGrid: {
         display: 'grid',
@@ -45,28 +122,68 @@ const styles: { [key: string]: React.CSSProperties } = {
     storyCard: {
         backgroundColor: 'var(--background-light)',
         borderRadius: '12px',
-        padding: '16px',
+        padding: '18px',
+        border: '1px solid #E5E7EB',
         boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+    },
+    storyMeta: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '10px',
+        color: '#6B7280',
+        fontSize: '13px',
+        marginBottom: '10px',
+    },
+    category: {
+        backgroundColor: '#EEF2FF',
+        color: 'var(--brand-purple)',
+        borderRadius: '999px',
+        padding: '4px 10px',
+        fontWeight: 700,
     },
     storyTitle: {
         fontSize: '18px',
-        fontWeight: '600',
+        fontWeight: '700',
         margin: '0 0 8px 0',
     },
     storySummary: {
         fontSize: '14px',
         color: 'var(--text-secondary)',
-        margin: '0 0 16px 0',
+        margin: '0 0 14px 0',
         lineHeight: 1.5,
     },
+    storyBody: {
+        fontSize: '15px',
+        color: '#374151',
+        margin: '0 0 14px 0',
+        lineHeight: 1.6,
+    },
     readMoreButton: {
-        padding: '8px 16px',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '6px',
+        padding: '8px 14px',
         borderRadius: '8px',
         border: 'none',
         backgroundColor: 'var(--brand-purple)',
         color: 'white',
-        fontWeight: '500',
+        fontWeight: '700',
         cursor: 'pointer',
+    },
+    messageBox: {
+        backgroundColor: '#FFFFFF',
+        border: '1px solid #E5E7EB',
+        borderRadius: '12px',
+        color: '#6B7280',
+        padding: '24px',
+        textAlign: 'center',
+    },
+    errorBox: {
+        backgroundColor: '#FEF2F2',
+        border: '1px solid #FECACA',
+        borderRadius: '12px',
+        color: '#DC2626',
+        padding: '16px',
     },
 };
 

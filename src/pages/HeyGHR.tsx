@@ -1,8 +1,15 @@
-import React from 'react';
+import { useState } from 'react';
+import type { CSSProperties, KeyboardEvent } from 'react';
 import { Bot, Mic, Send } from 'lucide-react';
+import { askAssistant } from '../lib/api';
 
-// Ek single chat bubble ke liye component
-const ChatBubble = ({ message, isUser }: { message: string, isUser?: boolean }) => (
+interface AssistantMessage {
+    id: string;
+    content: string;
+    isUser?: boolean;
+}
+
+const ChatBubble = ({ message, isUser }: { message: string; isUser?: boolean }) => (
     <div style={{ ...styles.bubbleContainer, justifyContent: isUser ? 'flex-end' : 'flex-start' }}>
         <div style={{ ...styles.bubble, ...(isUser ? styles.userBubble : styles.aiBubble) }}>
             {message}
@@ -10,33 +17,89 @@ const ChatBubble = ({ message, isUser }: { message: string, isUser?: boolean }) 
     </div>
 );
 
-// Main AI Page
 const HeyGHRPage = () => {
+    const [messages, setMessages] = useState<AssistantMessage[]>([
+        { id: 'welcome', content: 'Hello! Ask me about events, points, posts, chat, login, or admin roles.' },
+    ]);
+    const [input, setInput] = useState('');
+    const [isSending, setIsSending] = useState(false);
+    const [error, setError] = useState('');
+
+    const handleSend = async () => {
+        const content = input.trim();
+        if (!content || isSending) return;
+
+        const userMessage = { id: `user-${Date.now()}`, content, isUser: true };
+        setMessages((currentMessages) => [...currentMessages, userMessage]);
+        setInput('');
+        setError('');
+        setIsSending(true);
+
+        try {
+            const response = await askAssistant(content);
+            setMessages((currentMessages) => [
+                ...currentMessages,
+                { id: response.reply.id, content: response.reply.content },
+            ]);
+        } catch (assistantError) {
+            setError(assistantError instanceof Error ? assistantError.message : 'Assistant is unavailable');
+        } finally {
+            setIsSending(false);
+        }
+    };
+
+    const handleMicClick = () => {
+        setMessages((currentMessages) => [
+            ...currentMessages,
+            {
+                id: `voice-${Date.now()}`,
+                content: 'Voice input is not connected in this browser yet. Typed campus help is working now.',
+            },
+        ]);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+        if (event.key === 'Enter') {
+            void handleSend();
+        }
+    };
+
     return (
         <div style={styles.container}>
-            {/* Header */}
             <div style={styles.header}>
                 <Bot size={32} color="var(--brand-purple)" />
                 <div>
                     <h1 style={styles.title}>Hey GHR</h1>
-                    <p style={styles.subtitle}>Your Personal Campus Assistant</p>
+                    <p style={styles.subtitle}>Campus assistant connected to HIVE backend</p>
                 </div>
             </div>
 
-            {/* Chat Area */}
             <div style={styles.chatArea}>
-                <ChatBubble message="Hello! How can I help you today?" />
-                <ChatBubble message="Where is my next class?" isUser />
-                <ChatBubble message="Your next class is 'Data Structures' in Room C-301 at 10:00 AM." />
+                {messages.map((message) => (
+                    <ChatBubble key={message.id} message={message.content} isUser={message.isUser} />
+                ))}
+                {isSending && <ChatBubble message="Thinking..." />}
+                {error && <p style={styles.errorText}>{error}</p>}
             </div>
 
-            {/* Input Area */}
             <div style={styles.inputArea}>
-                <input type="text" placeholder="Ask me anything..." style={styles.input} />
-                <button style={styles.micButton}>
+                <input
+                    type="text"
+                    placeholder="Ask about events, OTP, points..."
+                    value={input}
+                    onChange={(event) => setInput(event.target.value)}
+                    onKeyDown={handleKeyDown}
+                    style={styles.input}
+                />
+                <button style={styles.micButton} onClick={handleMicClick} title="Voice input status">
                     <Mic size={22} color="white" />
                 </button>
-                <button style={styles.sendButton}>
+                <button
+                    aria-label="Send assistant message"
+                    style={{ ...styles.sendButton, ...((isSending || !input.trim()) ? styles.disabledButton : {}) }}
+                    onClick={handleSend}
+                    disabled={isSending || !input.trim()}
+                >
                     <Send size={22} color="white" />
                 </button>
             </div>
@@ -44,7 +107,7 @@ const HeyGHRPage = () => {
     );
 };
 
-const styles: { [key: string]: React.CSSProperties } = {
+const styles: { [key: string]: CSSProperties } = {
     container: {
         display: 'flex',
         flexDirection: 'column',
@@ -77,7 +140,6 @@ const styles: { [key: string]: React.CSSProperties } = {
         flexDirection: 'column',
         gap: '16px',
     },
-    // Chat Bubble Styles
     bubbleContainer: {
         display: 'flex',
     },
@@ -98,7 +160,14 @@ const styles: { [key: string]: React.CSSProperties } = {
         color: 'white',
         borderTopRightRadius: '4px',
     },
-    // Input Area Styles
+    errorText: {
+        color: '#DC2626',
+        backgroundColor: '#FEF2F2',
+        border: '1px solid #FECACA',
+        borderRadius: '12px',
+        padding: '10px 12px',
+        margin: 0,
+    },
     inputArea: {
         display: 'flex',
         alignItems: 'center',
@@ -120,7 +189,7 @@ const styles: { [key: string]: React.CSSProperties } = {
         height: '48px',
         borderRadius: '50%',
         border: 'none',
-        backgroundColor: '#2563EB', // Blue color for mic
+        backgroundColor: '#2563EB',
         color: 'white',
         display: 'flex',
         alignItems: 'center',
@@ -138,7 +207,11 @@ const styles: { [key: string]: React.CSSProperties } = {
         alignItems: 'center',
         justifyContent: 'center',
         cursor: 'pointer',
-    }
+    },
+    disabledButton: {
+        opacity: 0.6,
+        cursor: 'not-allowed',
+    },
 };
 
 export default HeyGHRPage;

@@ -1,69 +1,88 @@
-import React, { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import type { CSSProperties } from 'react';
 import TopStoryCard from '../components/feed/TopStoryCard';
 import CreatePost from '../components/feed/CreatePost';
 import PostCard from '../components/feed/PostCard';
+import { getPosts } from '../lib/api';
+import type { Post } from '../lib/api';
 
-// Post card ke liye ek alag loading skeleton
 const PostSkeleton = () => (
     <div style={styles.skeletonCard}>
         <div style={styles.skeletonHeader}>
             <div style={styles.skeletonAvatar}></div>
             <div style={styles.skeletonAuthorInfo}>
                 <div style={styles.skeletonLine}></div>
-                <div style={{...styles.skeletonLine, width: '60%'}}></div>
+                <div style={{ ...styles.skeletonLine, width: '60%' }}></div>
             </div>
         </div>
-        <div style={{...styles.skeletonLine, height: '40px'}}></div>
+        <div style={{ ...styles.skeletonLine, height: '40px' }}></div>
     </div>
 );
 
 const Feed = () => {
-    // Nayi states loading aur posts ke liye
     const [isLoading, setIsLoading] = useState(true);
-    // Note: Ab hum posts state ko use nahi kar rahe, lekin backend ke liye ready hai
-    // const [posts, setPosts] = useState<any[]>([]); 
+    const [posts, setPosts] = useState<Post[]>([]);
+    const [error, setError] = useState('');
 
-    // Backend se data aane ki acting
-    useEffect(() => {
+    const loadPosts = async () => {
         setIsLoading(true);
-        // 2 second baad loading band ho jayegi
-        setTimeout(() => {
+        setError('');
+
+        try {
+            const response = await getPosts();
+            setPosts(response.posts);
+        } catch (feedError) {
+            setError(feedError instanceof Error ? feedError.message : 'Unable to load posts');
+        } finally {
             setIsLoading(false);
-        }, 2000);
+        }
+    };
+
+    useEffect(() => {
+        void loadPosts();
     }, []);
+
+    const handlePostCreated = (post: Post) => {
+        setPosts((currentPosts) => [post, ...currentPosts]);
+    };
+
+    const handlePostUpdated = (post: Post) => {
+        setPosts((currentPosts) => currentPosts.map((item) => item.id === post.id ? post : item));
+    };
 
     return (
         <div style={styles.feedContainer}>
             <TopStoryCard />
-            <CreatePost />
-            
-            {/* YEH NAYA CHANGE HAI: Loading ke hisaab se content dikhega */}
+            <CreatePost onPostCreated={handlePostCreated} />
+
             {isLoading ? (
                 <>
                     <PostSkeleton />
                     <PostSkeleton />
                     <PostSkeleton />
                 </>
+            ) : error ? (
+                <div style={styles.messageBox}>
+                    <p style={styles.errorText}>{error}</p>
+                    <button style={styles.retryButton} onClick={loadPosts}>Try Again</button>
+                </div>
+            ) : posts.length === 0 ? (
+                <div style={styles.messageBox}>No posts yet. Create the first post for HIVE.</div>
             ) : (
-                <>
-                    {/* YEH AAPKA SIMPLE LAYOUT HAI, BILKUL WAISA HI */}
-                    <PostCard hasMedia={true} />
-                    <PostCard />
-                    <PostCard />
-                    <PostCard hasMedia={true} />
-                </>
+                posts.map((post) => (
+                    <PostCard key={post.id} post={post} onPostUpdated={handlePostUpdated} />
+                ))
             )}
         </div>
     );
 };
 
-const styles: { [key: string]: React.CSSProperties } = {
+const styles: { [key: string]: CSSProperties } = {
     feedContainer: {
         display: 'flex',
         flexDirection: 'column',
         gap: '16px',
     },
-    // Skeleton styles (baaki styles waise hi hain)
     skeletonCard: {
         backgroundColor: '#FFFFFF',
         borderRadius: '16px',
@@ -91,7 +110,27 @@ const styles: { [key: string]: React.CSSProperties } = {
         borderRadius: '4px',
         marginBottom: '8px',
     },
+    messageBox: {
+        backgroundColor: '#FFFFFF',
+        border: '1px solid #E5E7EB',
+        borderRadius: '12px',
+        color: '#6B7280',
+        padding: '20px',
+        textAlign: 'center',
+    },
+    errorText: {
+        color: '#DC2626',
+        margin: '0 0 12px 0',
+    },
+    retryButton: {
+        padding: '8px 14px',
+        border: 'none',
+        borderRadius: '8px',
+        backgroundColor: 'var(--brand-purple)',
+        color: 'white',
+        fontWeight: '600',
+        cursor: 'pointer',
+    },
 };
 
 export default Feed;
-

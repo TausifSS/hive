@@ -1,71 +1,222 @@
-import React from 'react';
+import { useEffect, useState } from 'react';
+import type { CSSProperties, KeyboardEvent } from 'react';
+import { Link } from 'react-router-dom';
 import { Send } from 'lucide-react';
-import SlidingTabBar from '../components/chat/SlidingTabBar'; // Naya component import kiya
-
-// Main Chat Area jahan messages dikhenge
-const ChatArea = () => {
-    return (
-        <div style={styles.chatArea}>
-            <div style={styles.messageContainer}>
-                {/* Yahan chat messages aayenge */}
-                <div style={styles.welcomeMessage}>
-                    <h3 style={styles.welcomeTitle}>Welcome to the Chat!</h3>
-                    <p style={styles.welcomeText}>Select a channel from above to start talking.</p>
-                </div>
-            </div>
-            <div style={styles.chatInputArea}>
-                <input type="text" placeholder="Send a message..." style={styles.chatInput} />
-                <button style={styles.sendButton}>
-                    <Send size={20} color="white" />
-                </button>
-            </div>
-        </div>
-    );
-};
-
+import SlidingTabBar, { chatChannels } from '../components/chat/SlidingTabBar';
+import { useAuth } from '../context/AuthContext';
+import { getChannelMessages, sendChannelMessage } from '../lib/api';
+import type { ChannelMessage } from '../lib/api';
 
 const SocialChatPage = () => {
-    // Mobile par ab PC wala layout nahi, seedha yeh dikhega
+    const { user } = useAuth();
+    const [activeTab, setActiveTab] = useState('global');
+    const [messages, setMessages] = useState<ChannelMessage[]>([]);
+    const [messageText, setMessageText] = useState('');
+    const [isLoading, setIsLoading] = useState(true);
+    const [isSending, setIsSending] = useState(false);
+    const [error, setError] = useState('');
+    const channelName = chatChannels.find((channel) => channel.id === activeTab)?.name || activeTab;
+
+    const loadMessages = async () => {
+        setIsLoading(true);
+        setError('');
+
+        try {
+            const response = await getChannelMessages(activeTab);
+            setMessages(response.messages);
+        } catch (chatError) {
+            setError(chatError instanceof Error ? chatError.message : 'Unable to load channel');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        void loadMessages();
+    }, [activeTab]);
+
+    const handleSend = async () => {
+        const content = messageText.trim();
+        if (!content || isSending) return;
+
+        setIsSending(true);
+        setError('');
+
+        try {
+            const response = await sendChannelMessage(activeTab, content);
+            setMessages(response.messages);
+            setMessageText('');
+        } catch (sendError) {
+            setError(sendError instanceof Error ? sendError.message : 'Unable to send message');
+        } finally {
+            setIsSending(false);
+        }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+        if (event.key === 'Enter') {
+            void handleSend();
+        }
+    };
+
     return (
         <div style={styles.container}>
-            <SlidingTabBar />
-            <ChatArea />
+            <SlidingTabBar activeTab={activeTab} onTabChange={setActiveTab} />
+            <div style={styles.channelHeader}>
+                <h1 style={styles.channelTitle}>#{channelName}</h1>
+                <button style={styles.refreshButton} onClick={loadMessages} disabled={isLoading}>
+                    Refresh
+                </button>
+            </div>
+
+            <div style={styles.chatArea}>
+                <div style={styles.messageContainer}>
+                    {isLoading ? (
+                        <div style={styles.notice}>Loading channel...</div>
+                    ) : error ? (
+                        <div style={styles.errorNotice}>{error}</div>
+                    ) : messages.length === 0 ? (
+                        <div style={styles.notice}>Start the first message in this channel.</div>
+                    ) : (
+                        messages.map((message) => {
+                            const isMine = message.senderId === user?.id;
+                            return (
+                                <div key={message.id} style={{ ...styles.messageRow, justifyContent: isMine ? 'flex-end' : 'flex-start' }}>
+                                    <div style={{ ...styles.messageBubble, ...(isMine ? styles.myBubble : styles.theirBubble) }}>
+                                        {!isMine && (
+                                            <Link to={`/profile/${message.author?.id || message.senderId}`} style={styles.authorName}>
+                                                {message.author?.name || 'Student'}
+                                            </Link>
+                                        )}
+                                        <p style={styles.messageContent}>{message.content}</p>
+                                        <span style={styles.messageTime}>
+                                            {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        </span>
+                                    </div>
+                                </div>
+                            );
+                        })
+                    )}
+                </div>
+
+                <div style={styles.chatInputArea}>
+                    <input
+                        type="text"
+                        placeholder={`Message #${channelName}`}
+                        value={messageText}
+                        onChange={(event) => setMessageText(event.target.value)}
+                        onKeyDown={handleKeyDown}
+                        style={styles.chatInput}
+                        disabled={isLoading}
+                    />
+                    <button
+                        aria-label="Send channel message"
+                        style={{ ...styles.sendButton, ...((isSending || !messageText.trim()) ? styles.disabledButton : {}) }}
+                        onClick={handleSend}
+                        disabled={isSending || !messageText.trim()}
+                    >
+                        <Send size={20} color="white" />
+                    </button>
+                </div>
+            </div>
         </div>
     );
 };
 
-const styles: { [key: string]: React.CSSProperties } = {
+const styles: { [key: string]: CSSProperties } = {
     container: {
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
-        backgroundColor: 'var(--background-main)'
+        backgroundColor: 'var(--background-main)',
     },
-    // Chat Area Styles
+    channelHeader: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: '12px',
+        padding: '14px 16px',
+        borderBottom: '1px solid var(--border-color)',
+        backgroundColor: 'var(--background-light)',
+    },
+    channelTitle: {
+        margin: 0,
+        fontSize: '18px',
+        color: 'var(--primary-dark)',
+    },
+    refreshButton: {
+        border: '1px solid var(--border-color)',
+        borderRadius: '8px',
+        backgroundColor: 'white',
+        color: 'var(--text-secondary)',
+        padding: '8px 12px',
+        fontWeight: 600,
+        cursor: 'pointer',
+    },
     chatArea: {
         flex: 1,
         display: 'flex',
         flexDirection: 'column',
-        overflow: 'hidden', // Scroll sirf message container mein hoga
+        overflow: 'hidden',
     },
     messageContainer: {
         flex: 1,
         overflowY: 'auto',
         padding: '20px',
     },
-    welcomeMessage: {
+    notice: {
         textAlign: 'center',
         padding: '40px 20px',
-        color: 'var(--text-secondary)'
+        color: 'var(--text-secondary)',
     },
-    welcomeTitle: {
-        fontSize: '22px',
-        fontWeight: 'bold',
-        margin: '0 0 10px 0'
+    errorNotice: {
+        color: '#DC2626',
+        backgroundColor: '#FEF2F2',
+        border: '1px solid #FECACA',
+        borderRadius: '12px',
+        padding: '16px',
+        textAlign: 'center',
     },
-    welcomeText: {
+    messageRow: {
+        display: 'flex',
+        marginBottom: '12px',
+    },
+    messageBubble: {
+        maxWidth: '78%',
+        borderRadius: '16px',
+        padding: '10px 12px',
+        border: '1px solid var(--border-color)',
+    },
+    myBubble: {
+        backgroundColor: 'var(--brand-purple)',
+        color: 'white',
+        borderColor: 'var(--brand-purple)',
+        borderTopRightRadius: '4px',
+    },
+    theirBubble: {
+        backgroundColor: 'white',
+        color: 'var(--primary-dark)',
+        borderTopLeftRadius: '4px',
+    },
+    authorName: {
+        display: 'block',
+        fontSize: '12px',
+        fontWeight: 700,
+        marginBottom: '4px',
+        color: 'var(--brand-purple)',
+        textDecoration: 'none',
+    },
+    messageContent: {
+        margin: 0,
         fontSize: '15px',
-        margin: 0
+        lineHeight: 1.45,
+    },
+    messageTime: {
+        display: 'block',
+        marginTop: '4px',
+        fontSize: '11px',
+        opacity: 0.75,
+        textAlign: 'right',
     },
     chatInputArea: {
         padding: '16px',
@@ -73,7 +224,7 @@ const styles: { [key: string]: React.CSSProperties } = {
         alignItems: 'center',
         gap: '10px',
         borderTop: '1px solid var(--border-color)',
-        backgroundColor: 'var(--background-light)'
+        backgroundColor: 'var(--background-light)',
     },
     chatInput: {
         flex: 1,
@@ -93,8 +244,11 @@ const styles: { [key: string]: React.CSSProperties } = {
         alignItems: 'center',
         justifyContent: 'center',
         cursor: 'pointer',
-    }
+    },
+    disabledButton: {
+        opacity: 0.6,
+        cursor: 'not-allowed',
+    },
 };
 
 export default SocialChatPage;
-

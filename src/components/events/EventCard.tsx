@@ -1,43 +1,63 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-// YEH FIX HAI: Trophy icon ko import kiya
-import { MapPin, Calendar, Users, Trophy } from 'lucide-react';
+import { Calendar, MapPin, Trophy, Users } from 'lucide-react';
+import type { HiveEvent } from '../../lib/api';
 
-// Is component ko eventId prop chahiye
-const EventCard = ({ eventId }: { eventId: number }) => {
+interface EventCardProps {
+    event: HiveEvent;
+    isRegistered: boolean;
+    onRegister: (eventId: string) => void;
+}
+
+const formatEventDate = (date: string) =>
+    new Date(date).toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+    });
+
+const EventCard = ({ event, isRegistered, onRegister }: EventCardProps) => {
+    const handleRegister = (clickEvent: React.MouseEvent<HTMLButtonElement>) => {
+        clickEvent.preventDefault();
+        clickEvent.stopPropagation();
+        onRegister(event.id);
+    };
+
     return (
-        // Poora card ab ek link hai
-        <Link to={`/event/${eventId}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+        <Link to={`/event/${event.id}`} style={styles.link}>
             <div style={styles.card}>
-                <div style={styles.imagePlaceholder}>
-                    <div style={styles.tag}>Competition</div>
+                <div style={{ ...styles.imagePlaceholder, backgroundImage: `url(${event.imageUrl})` }}>
+                    <div style={styles.tag}>{event.category}</div>
                     <div style={styles.pointsTag}>
                         <Trophy size={14} color="#FBBF24" />
-                        <span>35</span>
+                        <span>{event.points}</span>
                     </div>
                 </div>
                 <div style={styles.content}>
-                    <h3 style={styles.title}>Entrepreneurship Summit 2024</h3>
-                    <p style={styles.description}>
-                        Meet successful entrepreneurs, attend keynote sessions, and participate in startup pitch...
-                    </p>
+                    <h3 style={styles.title}>{event.title}</h3>
+                    <p style={styles.description}>{event.description}</p>
                     <div style={styles.details}>
                         <div style={styles.detailItem}>
                             <Calendar size={16} color="#6B7280" />
-                            <span>Feb 25, 2024</span>
+                            <span>{formatEventDate(event.date)}</span>
                         </div>
                         <div style={styles.detailItem}>
                             <MapPin size={16} color="#6B7280" />
-                            <span>Convention Center</span>
+                            <span>{event.venue}</span>
                         </div>
                         <div style={styles.detailItem}>
                             <Users size={16} color="#6B7280" />
-                            <span>124 registered / 200</span>
+                            <span>{event.registeredCount} registered / {event.capacity}</span>
                         </div>
                     </div>
                     <div style={styles.footer}>
-                        <span style={styles.organizer}>by E-Cell GHRCEM</span>
-                        <button style={styles.registerButton}>Register</button>
+                        <span style={styles.organizer}>by {event.organizer}</span>
+                        <button
+                            style={isRegistered ? styles.registeredButton : styles.registerButton}
+                            onClick={handleRegister}
+                        >
+                            {isRegistered ? 'Registered' : 'Register'}
+                        </button>
                     </div>
                 </div>
             </div>
@@ -46,6 +66,10 @@ const EventCard = ({ eventId }: { eventId: number }) => {
 };
 
 const styles: { [key: string]: React.CSSProperties } = {
+    link: {
+        textDecoration: 'none',
+        color: 'inherit',
+    },
     card: {
         backgroundColor: 'white',
         borderRadius: '16px',
@@ -63,7 +87,6 @@ const styles: { [key: string]: React.CSSProperties } = {
         alignItems: 'flex-start',
         justifyContent: 'space-between',
         padding: '12px',
-        backgroundImage: 'url(https://placehold.co/400x200/cccccc/ffffff?text=Event+Image)',
         backgroundSize: 'cover',
         backgroundPosition: 'center',
     },
@@ -120,6 +143,7 @@ const styles: { [key: string]: React.CSSProperties } = {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
+        gap: '12px',
     },
     organizer: {
         fontSize: '13px',
@@ -135,8 +159,17 @@ const styles: { [key: string]: React.CSSProperties } = {
         fontWeight: 'bold',
         fontSize: '14px',
         cursor: 'pointer',
+    },
+    registeredButton: {
+        padding: '8px 16px',
+        backgroundColor: '#F3F4F6',
+        color: '#374151',
+        border: 'none',
+        borderRadius: '8px',
+        fontWeight: 'bold',
+        fontSize: '14px',
+        cursor: 'default',
     }
 };
 
 export default EventCard;
-
