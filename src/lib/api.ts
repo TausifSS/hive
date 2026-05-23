@@ -150,7 +150,519 @@ export const clearAuthToken = () => {
     localStorage.removeItem(TOKEN_STORAGE_KEY);
 };
 
+type DemoUser = User & {
+    email: string;
+    password: string;
+};
+
+type DemoClubApplication = ClubApplication & {
+    password: string;
+};
+
+interface DemoDb {
+    users: DemoUser[];
+    sessions: Record<string, string>;
+    otps: Record<string, string>;
+    posts: Post[];
+    events: HiveEvent[];
+    stories: TopStory[];
+    clubApplications: DemoClubApplication[];
+    conversations: Conversation[];
+    channelMessages: Record<string, ChannelMessage[]>;
+}
+
+const DEMO_DB_STORAGE_KEY = 'hive-demo-db-v1';
+const isHostedDemo = typeof window !== 'undefined' && window.location.hostname.endsWith('github.io') && !import.meta.env.VITE_API_URL;
+
+const nowIso = () => new Date().toISOString();
+
+const readDemoDb = (): DemoDb => {
+    const saved = localStorage.getItem(DEMO_DB_STORAGE_KEY);
+    if (saved) {
+        try {
+            return JSON.parse(saved) as DemoDb;
+        } catch {
+            localStorage.removeItem(DEMO_DB_STORAGE_KEY);
+        }
+    }
+
+    return {
+        users: [],
+        sessions: {},
+        otps: {},
+        posts: [],
+        events: [],
+        stories: [],
+        clubApplications: [],
+        conversations: [],
+        channelMessages: { global: [], professional: [], placements: [] },
+    };
+};
+
+const writeDemoDb = (db: DemoDb) => {
+    localStorage.setItem(DEMO_DB_STORAGE_KEY, JSON.stringify(db));
+};
+
+const normalizeEmail = (email: string) => String(email || '').trim().toLowerCase();
+
+const isDemoCollegeEmail = (email: string) => {
+    const domain = normalizeEmail(email).split('@')[1] || '';
+    return domain === 'raisoni.net'
+        || domain.endsWith('.raisoni.net')
+        || domain === 'raisoni.edu'
+        || domain.endsWith('.raisoni.edu')
+        || domain === 'highschool.net'
+        || domain.endsWith('.highschool.net')
+        || domain.endsWith('.edu')
+        || domain === 'ghrcem.edu'
+        || domain.endsWith('.ghrcem.edu');
+};
+
+const createDemoId = (email: string, users: DemoUser[]) => {
+    const base = normalizeEmail(email).split('@')[0].replace(/[^a-z0-9]/g, '') || 'user';
+    let candidate = base;
+    let suffix = 1;
+
+    while (users.some((user) => user.id === candidate || user.handle === candidate)) {
+        suffix += 1;
+        candidate = `${base}${suffix}`;
+    }
+
+    return candidate;
+};
+
+const demoAvatar = (name: string) => `https://placehold.co/100x100/EFEFEF/333?text=${encodeURIComponent(name.slice(0, 2).toUpperCase())}`;
+
+const publicDemoUser = (user?: DemoUser | null): User | null => {
+    if (!user) return null;
+    const { password, ...safeUser } = user;
+    return safeUser;
+};
+
+const publicDemoClubApplication = (application?: DemoClubApplication | null): ClubApplication | null => {
+    if (!application) return null;
+    const { password, ...safeApplication } = application;
+    return safeApplication;
+};
+
+const createDemoUser = (db: DemoDb, email: string, password: string, name?: string, role: UserRole = 'student') => {
+    const normalizedEmail = normalizeEmail(email);
+    const userName = String(name || normalizedEmail.split('@')[0] || 'HIVE User').trim();
+    const id = createDemoId(normalizedEmail, db.users);
+    const user: DemoUser = {
+        id,
+        name: userName,
+        email: normalizedEmail,
+        password,
+        role,
+        handle: id,
+        bio: '',
+        avatarUrl: demoAvatar(userName),
+        coverUrl: 'https://placehold.co/600x200/374151/E5E7EB?text=Cover+Photo',
+        points: 0,
+        blockedAt: null,
+        followers: [],
+        following: [],
+    };
+
+    db.users.push(user);
+    return user;
+};
+
+const createDemoSession = (db: DemoDb, user: DemoUser) => {
+    const token = `demo-${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+    db.sessions[token] = user.id;
+    return token;
+};
+
+const requireDemoUser = (db: DemoDb) => {
+    const token = getAuthToken();
+    const userId = token ? db.sessions[token] : '';
+    const user = db.users.find((candidate) => candidate.id === userId);
+
+    if (!user || user.blockedAt) {
+        throw new Error('Authentication required');
+    }
+
+    return user;
+};
+
+const demoPost = (db: DemoDb, post: Post): Post => {
+    const author = publicDemoUser(db.users.find((user) => user.id === post.authorId));
+    const comments = (post.comments || []).map((comment) => ({
+        ...comment,
+        author: publicDemoUser(db.users.find((user) => user.id === comment.authorId)),
+    }));
+
+    return {
+        ...post,
+        author,
+        comments,
+        likesCount: post.likes?.length || 0,
+        savedCount: post.savedBy?.length || 0,
+        commentsCount: comments.length,
+    };
+};
+
+const demoEvent = (db: DemoDb, event: HiveEvent): HiveEvent => ({
+    ...event,
+    organizerUser: publicDemoUser(db.users.find((user) => user.id === event.organizerId)),
+    registeredCount: event.registeredUserIds.length,
+});
+
+const conversationIdFor = (userA: string, userB: string) => `chat-${[userA, userB].sort().join('-')}`;
+
+const demoReply = (message: string, user: DemoUser) => {
+    const text = String(message || '').trim().toLowerCase();
+    if (text.includes('event')) return `There are ${readDemoDb().events.length} demo events right now.`;
+    if (text.includes('point') || text.includes('leaderboard')) return `You have ${user.points || 0} points in this demo browser.`;
+    if (text.includes('post') || text.includes('like')) return 'Demo feed is local to this browser. You can create, like, save, and comment.';
+    if (text.includes('chat')) return 'Social Chat stores demo channel messages in this browser.';
+    return 'This hosted GitHub Pages demo uses local browser storage. Create a college-email account, explore the UI, and deploy the backend later for a shared database.';
+};
+
+async function demoRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+    const db = readDemoDb();
+    const method = String(options.method || 'GET').toUpperCase();
+    const url = new URL(path, window.location.origin);
+    const parts = url.pathname.split('/').filter(Boolean);
+    const body = (options.body || {}) as Record<string, string | number | boolean | undefined>;
+
+    const finish = <R,>(payload: R): R => {
+        writeDemoDb(db);
+        return payload;
+    };
+
+    if (url.pathname === '/api/auth/request-otp' && method === 'POST') {
+        const email = normalizeEmail(String(body.email || ''));
+        if (!isDemoCollegeEmail(email)) throw new Error('Use your college email address to continue');
+        const otp = String(Math.floor(100000 + Math.random() * 900000));
+        db.otps[email] = otp;
+        return finish({
+            ok: true,
+            expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+            delivery: 'development',
+            devOtp: otp,
+            message: 'Demo OTP created and filled automatically.',
+        } as T);
+    }
+
+    if (url.pathname === '/api/auth/student/set-password' && method === 'POST') {
+        const email = normalizeEmail(String(body.email || ''));
+        if (!isDemoCollegeEmail(email)) throw new Error('Use your college email address to continue');
+        if (db.otps[email] !== String(body.otp || '').trim()) throw new Error('Invalid OTP');
+        let user = db.users.find((candidate) => candidate.email === email);
+        if (user) {
+            user.password = String(body.password || '');
+            user.name = String(body.name || user.name);
+        } else {
+            user = createDemoUser(db, email, String(body.password || ''), String(body.name || ''), 'student');
+        }
+        delete db.otps[email];
+        const token = createDemoSession(db, user);
+        return finish({ token, expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), user: publicDemoUser(user) } as T);
+    }
+
+    if ((url.pathname === '/api/auth/login' || url.pathname === '/api/auth/student-login') && method === 'POST') {
+        const email = normalizeEmail(String(body.email || ''));
+        const user = db.users.find((candidate) => candidate.email === email);
+        if (!user) throw new Error('Account not found. Use Forgot Password to verify email and set your password.');
+        if (user.blockedAt) throw new Error('This account is blocked. Contact college admin.');
+        if (user.password !== String(body.password || '')) throw new Error('Invalid email or password');
+        const token = createDemoSession(db, user);
+        return finish({ token, expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), user: publicDemoUser(user) } as T);
+    }
+
+    if (url.pathname === '/api/auth/admin-login' && method === 'POST') {
+        if (String(body.adminId || '').trim() !== 'admin' || String(body.password || '') !== 'admin123') {
+            throw new Error('Invalid admin ID or password');
+        }
+        let admin = db.users.find((user) => user.id === 'college-admin');
+        if (!admin) admin = createDemoUser(db, 'college.admin@ghrcemp.raisoni.net', 'admin123', 'College Admin', 'Admin');
+        admin.role = 'Admin';
+        const token = createDemoSession(db, admin);
+        return finish({ token, expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), user: publicDemoUser(admin) } as T);
+    }
+
+    if (url.pathname === '/api/auth/club/register' && method === 'POST') {
+        const email = normalizeEmail(String(body.email || ''));
+        if (!isDemoCollegeEmail(email)) throw new Error('Use your club official college email');
+        if (!body.clubName || !body.certificateName || !body.certificateData) throw new Error('Club name and registration certificate are required');
+        if (db.users.some((user) => user.email === email)) throw new Error('This email already belongs to another HIVE account.');
+        let application = db.clubApplications.find((candidate) => candidate.officialEmail === email);
+        if (!application) {
+            application = {
+                id: crypto.randomUUID(),
+                clubName: String(body.clubName),
+                officialEmail: email,
+                password: String(body.password || ''),
+                certificateName: String(body.certificateName),
+                status: 'pending',
+                submittedAt: nowIso(),
+                reviewedAt: null,
+                reviewedBy: null,
+                note: '',
+            };
+            db.clubApplications.push(application);
+        } else {
+            application.clubName = String(body.clubName);
+            application.password = String(body.password || '');
+            application.certificateName = String(body.certificateName);
+            application.status = 'pending';
+            application.submittedAt = nowIso();
+        }
+        return finish({ application: publicDemoClubApplication(application) } as T);
+    }
+
+    if (url.pathname === '/api/auth/club/status' && method === 'GET') {
+        const email = normalizeEmail(url.searchParams.get('email') || '');
+        const user = db.users.find((candidate) => candidate.email === email && candidate.role === 'club_admin');
+        if (user) return finish({ status: 'approved', user: publicDemoUser(user) } as T);
+        const application = db.clubApplications.find((candidate) => candidate.officialEmail === email);
+        if (!application) throw new Error('No club verification request found');
+        return finish({ status: application.status, application: publicDemoClubApplication(application) } as T);
+    }
+
+    if (url.pathname === '/api/auth/google' && method === 'POST') throw new Error('Google login is disabled in hosted demo mode.');
+
+    if (url.pathname === '/api/auth/logout' && method === 'POST') {
+        const token = getAuthToken();
+        if (token) delete db.sessions[token];
+        return finish({ ok: true } as T);
+    }
+
+    if (url.pathname === '/api/auth/me' && method === 'GET') {
+        return finish({ user: publicDemoUser(requireDemoUser(db)) } as T);
+    }
+
+    if (url.pathname === '/api/users/me' && method === 'PATCH') {
+        const user = requireDemoUser(db);
+        user.name = String(body.name || user.name);
+        user.bio = String(body.bio ?? user.bio ?? '');
+        user.avatarUrl = String(body.avatarUrl ?? user.avatarUrl ?? '');
+        user.coverUrl = String(body.coverUrl ?? user.coverUrl ?? '');
+        return finish({ user: publicDemoUser(user) } as T);
+    }
+
+    if (url.pathname === '/api/users' && method === 'GET') return finish({ users: db.users.map(publicDemoUser) } as T);
+
+    if (parts[0] === 'api' && parts[1] === 'users' && parts[2] && method === 'GET') {
+        const user = db.users.find((candidate) => candidate.id === parts[2] || candidate.handle === parts[2]);
+        if (!user) throw new Error('Not found');
+        return finish({ user: publicDemoUser(user) } as T);
+    }
+
+    if (parts[0] === 'api' && parts[1] === 'users' && parts[3] === 'follow' && method === 'POST') {
+        const currentUser = requireDemoUser(db);
+        const targetUser = db.users.find((candidate) => candidate.id === parts[2]);
+        if (!targetUser) throw new Error('Not found');
+        currentUser.following = Array.from(new Set([...(currentUser.following || []), targetUser.id]));
+        targetUser.followers = Array.from(new Set([...(targetUser.followers || []), currentUser.id]));
+        return finish({ user: publicDemoUser(targetUser), currentUser: publicDemoUser(currentUser) } as T);
+    }
+
+    if (url.pathname === '/api/posts' && method === 'GET') {
+        return finish({ posts: db.posts.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((post) => demoPost(db, post)) } as T);
+    }
+
+    if (url.pathname === '/api/posts' && method === 'POST') {
+        const user = requireDemoUser(db);
+        if (!body.content && !body.mediaUrl) throw new Error('content or mediaUrl is required');
+        const post: Post = {
+            id: crypto.randomUUID(),
+            authorId: user.id,
+            content: String(body.content || ''),
+            mediaUrl: String(body.mediaUrl || ''),
+            likes: [],
+            savedBy: [],
+            comments: [],
+            likesCount: 0,
+            savedCount: 0,
+            commentsCount: 0,
+            createdAt: nowIso(),
+        };
+        db.posts.unshift(post);
+        return finish({ post: demoPost(db, post) } as T);
+    }
+
+    if (parts[0] === 'api' && parts[1] === 'posts' && parts[2]) {
+        const user = requireDemoUser(db);
+        const post = db.posts.find((candidate) => candidate.id === parts[2]);
+        if (!post) throw new Error('Not found');
+        if (parts[3] === 'like' && method === 'POST') {
+            post.likes = post.likes.includes(user.id) ? post.likes.filter((id) => id !== user.id) : [...post.likes, user.id];
+            return finish({ post: demoPost(db, post) } as T);
+        }
+        if (parts[3] === 'save' && method === 'POST') {
+            post.savedBy = post.savedBy.includes(user.id) ? post.savedBy.filter((id) => id !== user.id) : [...post.savedBy, user.id];
+            return finish({ post: demoPost(db, post) } as T);
+        }
+        if (parts[3] === 'comments' && method === 'POST') {
+            const comment: PostComment = { id: crypto.randomUUID(), authorId: user.id, content: String(body.content || ''), createdAt: nowIso() };
+            post.comments.push(comment);
+            return finish({ post: demoPost(db, post), comment } as T);
+        }
+    }
+
+    if (url.pathname === '/api/events' && method === 'GET') return finish({ events: db.events.map((event) => demoEvent(db, event)) } as T);
+
+    if (url.pathname === '/api/events' && method === 'POST') {
+        const user = requireDemoUser(db);
+        if (!['club_admin', 'Admin'].includes(user.role)) throw new Error('Only club admins can create events');
+        const event: HiveEvent = {
+            id: crypto.randomUUID(),
+            title: String(body.title || ''),
+            description: String(body.description || ''),
+            category: String(body.category || 'General'),
+            date: String(body.date || nowIso()),
+            venue: String(body.venue || ''),
+            organizer: String(body.organizer || user.name),
+            organizerId: user.id,
+            capacity: Number(body.capacity || 100),
+            points: Number(body.points || 0),
+            imageUrl: String(body.imageUrl || 'https://placehold.co/400x200/cccccc/ffffff?text=Event+Image'),
+            registeredUserIds: [],
+            registeredCount: 0,
+            createdAt: nowIso(),
+        };
+        db.events.push(event);
+        return finish({ event: demoEvent(db, event) } as T);
+    }
+
+    if (parts[0] === 'api' && parts[1] === 'events' && parts[2] && method === 'GET') {
+        const event = db.events.find((candidate) => candidate.id === parts[2]);
+        if (!event) throw new Error('Not found');
+        return finish({ event: demoEvent(db, event) } as T);
+    }
+
+    if (parts[0] === 'api' && parts[1] === 'events' && parts[3] === 'register' && method === 'POST') {
+        const user = requireDemoUser(db);
+        const event = db.events.find((candidate) => candidate.id === parts[2]);
+        if (!event) throw new Error('Not found');
+        if (!event.registeredUserIds.includes(user.id)) {
+            event.registeredUserIds.push(user.id);
+            user.points = Number(user.points || 0) + Number(event.points || 0);
+        }
+        return finish({ event: demoEvent(db, event), user: publicDemoUser(user) } as T);
+    }
+
+    if (url.pathname === '/api/leaderboard' && method === 'GET') {
+        return finish({ users: db.users.slice().sort((a, b) => Number(b.points || 0) - Number(a.points || 0)).map((user, index) => ({ ...publicDemoUser(user), rank: index + 1 })) } as T);
+    }
+
+    if (parts[0] === 'api' && parts[1] === 'conversations' && parts[2] && method === 'GET') {
+        const user = requireDemoUser(db);
+        const otherUser = db.users.find((candidate) => candidate.id === parts[2]);
+        if (!otherUser) throw new Error('Not found');
+        const id = conversationIdFor(user.id, otherUser.id);
+        let conversation = db.conversations.find((candidate) => candidate.id === id);
+        if (!conversation) {
+            conversation = { id, participantIds: [user.id, otherUser.id], messages: [], updatedAt: nowIso() };
+            db.conversations.push(conversation);
+        }
+        return finish({ conversation } as T);
+    }
+
+    if (parts[0] === 'api' && parts[1] === 'conversations' && parts[3] === 'messages' && method === 'POST') {
+        const user = requireDemoUser(db);
+        const conversation = db.conversations.find((candidate) => candidate.id === parts[2]);
+        if (!conversation || !conversation.participantIds.includes(user.id)) throw new Error('Not found');
+        const message: ConversationMessage = { id: crypto.randomUUID(), senderId: user.id, content: String(body.content || ''), createdAt: nowIso() };
+        conversation.messages.push(message);
+        conversation.updatedAt = message.createdAt;
+        return finish({ conversation, message } as T);
+    }
+
+    if (parts[0] === 'api' && parts[1] === 'chat' && parts[2] === 'channels' && parts[3] && parts[4] === 'messages') {
+        const user = requireDemoUser(db);
+        const channelId = parts[3];
+        db.channelMessages[channelId] = db.channelMessages[channelId] || [];
+        if (method === 'GET') return finish({ messages: db.channelMessages[channelId] } as T);
+        if (method === 'POST') {
+            const message: ChannelMessage = { id: crypto.randomUUID(), channelId, senderId: user.id, content: String(body.content || ''), createdAt: nowIso(), author: publicDemoUser(user) };
+            db.channelMessages[channelId].push(message);
+            return finish({ messages: db.channelMessages[channelId], message } as T);
+        }
+    }
+
+    if (url.pathname === '/api/assistant/message' && method === 'POST') {
+        const user = requireDemoUser(db);
+        return finish({ reply: { id: `assistant-${Date.now()}`, sender: 'assistant', content: demoReply(String(body.message || ''), user), createdAt: nowIso() } } as T);
+    }
+
+    if (url.pathname === '/api/stories' && method === 'GET') return finish({ stories: db.stories } as T);
+
+    if (url.pathname === '/api/stories' && method === 'POST') {
+        const user = requireDemoUser(db);
+        if (user.role !== 'Admin') throw new Error('You do not have permission for this action');
+        const story: TopStory = { id: crypto.randomUUID(), title: String(body.title || ''), summary: String(body.summary || ''), body: String(body.body || body.summary || ''), category: String(body.category || 'Official'), authorId: user.id, createdAt: nowIso(), author: publicDemoUser(user) };
+        db.stories.unshift(story);
+        return finish({ story } as T);
+    }
+
+    if (parts[0] === 'api' && parts[1] === 'stories' && parts[2] && method === 'GET') {
+        const story = db.stories.find((candidate) => candidate.id === parts[2]);
+        if (!story) throw new Error('Not found');
+        return finish({ story } as T);
+    }
+
+    if (url.pathname === '/api/admin/users' && method === 'GET') {
+        const user = requireDemoUser(db);
+        if (user.role !== 'Admin') throw new Error('You do not have permission for this action');
+        return finish({ users: db.users.map(publicDemoUser) } as T);
+    }
+
+    if (url.pathname === '/api/admin/club-applications' && method === 'GET') {
+        const user = requireDemoUser(db);
+        if (user.role !== 'Admin') throw new Error('You do not have permission for this action');
+        return finish({ applications: db.clubApplications.map(publicDemoClubApplication) } as T);
+    }
+
+    if (parts[0] === 'api' && parts[1] === 'admin' && parts[2] === 'club-applications' && parts[4] === 'review' && method === 'PATCH') {
+        const user = requireDemoUser(db);
+        if (user.role !== 'Admin') throw new Error('You do not have permission for this action');
+        const application = db.clubApplications.find((candidate) => candidate.id === parts[3]);
+        if (!application) throw new Error('Not found');
+        application.status = String(body.status || 'pending') as ClubApplication['status'];
+        application.reviewedAt = nowIso();
+        application.reviewedBy = user.id;
+        if (application.status === 'approved') {
+            let clubUser = db.users.find((candidate) => candidate.email === application.officialEmail);
+            if (!clubUser) clubUser = createDemoUser(db, application.officialEmail, application.password, application.clubName, 'club_admin');
+            clubUser.role = 'club_admin';
+            clubUser.password = application.password;
+            clubUser.name = application.clubName;
+        }
+        return finish({ application: publicDemoClubApplication(application) } as T);
+    }
+
+    if (parts[0] === 'api' && parts[1] === 'admin' && parts[2] === 'users' && parts[3]) {
+        const admin = requireDemoUser(db);
+        if (admin.role !== 'Admin') throw new Error('You do not have permission for this action');
+        const targetUser = db.users.find((candidate) => candidate.id === parts[3]);
+        if (!targetUser) throw new Error('Not found');
+        if (parts[4] === 'role' && method === 'PATCH') {
+            targetUser.role = String(body.role || targetUser.role) as UserRole;
+            return finish({ user: publicDemoUser(targetUser) } as T);
+        }
+        if (parts[4] === 'block' && method === 'PATCH') {
+            targetUser.blockedAt = body.blocked ? nowIso() : null;
+            return finish({ user: publicDemoUser(targetUser) } as T);
+        }
+        if (method === 'DELETE') {
+            db.users = db.users.filter((candidate) => candidate.id !== targetUser.id);
+            return finish({ ok: true } as T);
+        }
+    }
+
+    throw new Error('Demo route is not available yet');
+}
+
 async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+    if (isHostedDemo) {
+        return demoRequest<T>(path, options);
+    }
+
     const token = getAuthToken();
     const headers = new Headers(options.headers);
 
