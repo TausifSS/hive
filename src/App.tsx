@@ -64,6 +64,7 @@ const App = () => {
         <Route path="/PCprofile" element={<PCProfilePage />} />
         <Route path="/PCprofile/:userId" element={<PCProfilePage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/messages" element={<MessagesPage />} />
         <Route path="/messages/:userId" element={<MessagesPage />} />
         <Route path="/event/:eventId" element={<EventDetailsPage />} />
         <Route path="/admin" element={user.role === 'Admin' ? <AdminDashboardPage /> : <Navigate to="/" replace />} />

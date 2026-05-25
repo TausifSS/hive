@@ -830,6 +830,28 @@ async function getOrCreateConversation(userA, userB) {
   return await getConversation(id);
 }
 
+async function listConversationsForUser(userId) {
+  const rows = await dbQueryAll(`
+    SELECT conversation_id FROM conversation_participants
+    WHERE user_id = ?
+  `, [userId]);
+
+  const results = [];
+  for (const row of rows) {
+    const convo = await getConversation(row.conversation_id);
+    if (convo) {
+      const otherId = convo.participantIds.find((id) => id !== userId);
+      if (otherId) {
+        const otherUser = await getUserById(otherId);
+        convo.otherUser = publicUser(otherUser);
+      }
+      results.push(convo);
+    }
+  }
+  results.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  return results;
+}
+
 async function addConversationMessage(conversationId, senderId, content) {
   const message = {
     id: randomUUID(),
@@ -1259,6 +1281,7 @@ export const db = {
   listLeaderboard,
   getConversation,
   getOrCreateConversation,
+  listConversationsForUser,
   addConversationMessage,
   listChannelMessages,
   addChannelMessage,

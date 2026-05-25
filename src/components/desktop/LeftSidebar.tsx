@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Home, Calendar, Bot, MessageSquare, Trophy, Newspaper, Shield, Building2 } from 'lucide-react';
+import { Home, Calendar, Bot, MessageSquare, MessageCircle, Trophy, Newspaper, Shield, Building2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 // NavItem component ab Link ban jayega
@@ -27,6 +27,7 @@ const LeftSidebar = () => {
         { icon: <Calendar size={24} />, title: 'Events', subtitle: 'Campus Events', to: '/events' },
         { icon: <Bot size={24} />, title: 'Hey GHR', subtitle: 'AI Assistant', to: '/ai' },
         { icon: <MessageSquare size={24} />, title: 'Social Chat', subtitle: 'Community Help', to: '/chat' },
+        { icon: <MessageCircle size={24} />, title: 'Direct Messages', subtitle: 'Private Chats', to: '/messages' },
         { icon: <Trophy size={24} />, title: 'Leaderboard', subtitle: 'Rankings', to: '/leaderboard' },
         { icon: <Newspaper size={24} />, title: 'Top Stories', subtitle: 'Official Updates', to: '/top-stories' },
     ];

@@ -1,13 +1,22 @@
 import { useEffect, useState } from 'react';
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ChangeEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { MoreHorizontal } from 'lucide-react';
+import { MoreHorizontal, Camera, Plus, Trash2, Clock } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { followUser, getUser, updateCurrentUserProfile } from '../lib/api';
-import type { User } from '../lib/api';
+import { followUser, getUser, updateCurrentUserProfile, getPosts, getEvents, registerForEvent } from '../lib/api';
+import type { User, Post, HiveEvent } from '../lib/api';
+import PostCard from '../components/feed/PostCard';
+import EventCard from '../components/events/EventCard';
+
+interface LocalNote {
+  id: string;
+  title: string;
+  content: string;
+  createdAt: string;
+}
 
 const PCProfilePage = () => {
-  const { user: currentUser, setUser } = useAuth();
+  const { user: currentUser, setUser, logout } = useAuth();
   const { userId } = useParams<{ userId: string }>();
   const targetUserId = userId || currentUser?.id;
   const [profileUser, setProfileUser] = useState<User | null>(currentUser);
@@ -17,29 +26,78 @@ const PCProfilePage = () => {
   const [activeTab, setActiveTab] = useState<'activity' | 'events' | 'notes' | 'timetable'>('activity');
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editForm, setEditForm] = useState({ name: '', bio: '', avatarUrl: '', coverUrl: '' });
+  
+  // Dropdown state for three-dot menu
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+
+  // Dynamic tabs data states
+  const [userPosts, setUserPosts] = useState<Post[]>([]);
+  const [registeredEvents, setRegisteredEvents] = useState<HiveEvent[]>([]);
+  const [isDataLoading, setIsDataLoading] = useState(false);
+
+  // Notes tab local states
+  const [notes, setNotes] = useState<LocalNote[]>([]);
+  const [newNoteTitle, setNewNoteTitle] = useState('');
+  const [newNoteContent, setNewNoteContent] = useState('');
+
+  // Timetable tab states
+  const [selectedDay, setSelectedDay] = useState<'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday'>('Monday');
+
+  const loadProfileData = async () => {
+    if (!targetUserId) {
+      setProfileUser(null);
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+    setError('');
+
+    try {
+      const response = await getUser(targetUserId);
+      setProfileUser(response.user);
+
+      // Fetch dynamic tab details
+      setIsDataLoading(true);
+      const [postsRes, eventsRes] = await Promise.all([
+        getPosts(),
+        getEvents()
+      ]);
+      
+      setUserPosts(postsRes.posts.filter((p) => p.authorId === targetUserId));
+      setRegisteredEvents(eventsRes.events.filter((e) => e.registeredUserIds.includes(targetUserId)));
+    } catch (profileError) {
+      setError(profileError instanceof Error ? profileError.message : 'Unable to load profile');
+    } finally {
+      setIsLoading(false);
+      setIsDataLoading(false);
+    }
+  };
+
+  // Load local notes from localStorage
+  const loadLocalNotes = () => {
+    const saved = localStorage.getItem(`hive-notes-${targetUserId}`);
+    if (saved) {
+      try {
+        setNotes(JSON.parse(saved) as LocalNote[]);
+      } catch {
+        setNotes([]);
+      }
+    } else {
+      setNotes([
+        {
+          id: 'note-welcome',
+          title: 'Welcome to your HIVE Notebook',
+          content: 'This is a personal student notebook. Notes you type here are stored securely in your browser\'s local storage.',
+          createdAt: new Date().toISOString()
+        }
+      ]);
+    }
+  };
 
   useEffect(() => {
-    const loadProfile = async () => {
-      if (!targetUserId) {
-        setProfileUser(null);
-        setIsLoading(false);
-        return;
-      }
-
-      setIsLoading(true);
-      setError('');
-
-      try {
-        const response = await getUser(targetUserId);
-        setProfileUser(response.user);
-      } catch (profileError) {
-        setError(profileError instanceof Error ? profileError.message : 'Unable to load profile');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    void loadProfile();
+    void loadProfileData();
+    loadLocalNotes();
   }, [targetUserId]);
 
   const isMyProfile = Boolean(profileUser && currentUser && profileUser.id === currentUser.id);
@@ -85,6 +143,98 @@ const PCProfilePage = () => {
     }
   };
 
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>, field: 'avatarUrl' | 'coverUrl') => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setEditForm((prev) => ({ ...prev, [field]: reader.result as string }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleCopyProfileLink = () => {
+    const link = `${window.location.origin}/Hive/#/profile/${profileUser?.id}`;
+    void navigator.clipboard.writeText(link)
+      .then(() => alert('Profile link copied to clipboard!'))
+      .catch(() => alert('Failed to copy link.'));
+    setIsDropdownOpen(false);
+  };
+
+  const handlePostUpdated = (updatedPost: Post) => {
+    setUserPosts((current) => current.map((p) => p.id === updatedPost.id ? updatedPost : p));
+  };
+
+  const handleEventRegister = async (eventId: string) => {
+    try {
+      await registerForEvent(eventId);
+      const eventsRes = await getEvents();
+      setRegisteredEvents(eventsRes.events.filter((e) => e.registeredUserIds.includes(targetUserId || '')));
+    } catch (err) {
+      console.error('Failed to register for event', err);
+    }
+  };
+
+  // Add a local note
+  const handleAddNote = () => {
+    if (!newNoteTitle.trim() || !newNoteContent.trim()) return;
+    const note: LocalNote = {
+      id: `note-${Date.now()}`,
+      title: newNoteTitle.trim(),
+      content: newNoteContent.trim(),
+      createdAt: new Date().toISOString()
+    };
+    const updatedNotes = [note, ...notes];
+    setNotes(updatedNotes);
+    localStorage.setItem(`hive-notes-${targetUserId}`, JSON.stringify(updatedNotes));
+    setNewNoteTitle('');
+    setNewNoteContent('');
+  };
+
+  // Delete a local note
+  const handleDeleteNote = (noteId: string) => {
+    const updatedNotes = notes.filter((n) => n.id !== noteId);
+    setNotes(updatedNotes);
+    localStorage.setItem(`hive-notes-${targetUserId}`, JSON.stringify(updatedNotes));
+  };
+
+  const mockTimetable = {
+    Monday: [
+      { time: '09:30 AM - 10:30 AM', subject: 'Web Technology', venue: 'L-401', instructor: 'Prof. J. Patel' },
+      { time: '10:30 AM - 11:30 AM', subject: 'Database Systems', venue: 'L-402', instructor: 'Dr. S. Sharma' },
+      { time: '11:30 AM - 12:00 PM', subject: 'Short Break', venue: 'Campus Canteen', instructor: '-' },
+      { time: '12:00 PM - 01:00 PM', subject: 'Software Engineering', venue: 'L-401', instructor: 'Prof. R. Sen' },
+      { time: '02:00 PM - 04:00 PM', subject: 'Database Lab', venue: 'Computer Lab 3', instructor: 'Dr. S. Sharma' }
+    ],
+    Tuesday: [
+      { time: '09:30 AM - 10:30 AM', subject: 'Operating Systems', venue: 'L-302', instructor: 'Prof. A. Rao' },
+      { time: '10:30 AM - 11:30 AM', subject: 'Formal Languages & Automata', venue: 'L-302', instructor: 'Dr. M. Roy' },
+      { time: '11:30 AM - 12:00 PM', subject: 'Short Break', venue: 'Campus Canteen', instructor: '-' },
+      { time: '12:00 PM - 01:00 PM', subject: 'Operating Systems Lab', venue: 'Computer Lab 1', instructor: 'Prof. A. Rao' },
+      { time: '02:00 PM - 04:00 PM', subject: 'Mini Project Development', venue: 'Lab 4', instructor: 'Prof. J. Patel' }
+    ],
+    Wednesday: [
+      { time: '09:30 AM - 11:30 AM', subject: 'Artificial Intelligence', venue: 'L-402', instructor: 'Dr. K. Joshi' },
+      { time: '11:30 AM - 12:00 PM', subject: 'Short Break', venue: 'Campus Canteen', instructor: '-' },
+      { time: '12:00 PM - 01:00 PM', subject: 'Compiler Design', venue: 'L-401', instructor: 'Prof. V. Vyas' },
+      { time: '02:00 PM - 04:00 PM', subject: 'Aptitude & Soft Skills', venue: 'Seminar Hall 2', instructor: 'Training Lead' }
+    ],
+    Thursday: [
+      { time: '09:30 AM - 10:30 AM', subject: 'Database Systems', venue: 'L-402', instructor: 'Dr. S. Sharma' },
+      { time: '10:30 AM - 11:30 AM', subject: 'Software Engineering', venue: 'L-401', instructor: 'Prof. R. Sen' },
+      { time: '11:30 AM - 12:00 PM', subject: 'Short Break', venue: 'Campus Canteen', instructor: '-' },
+      { time: '12:00 PM - 01:00 PM', subject: 'Compiler Design', venue: 'L-401', instructor: 'Prof. V. Vyas' },
+      { time: '02:00 PM - 04:00 PM', subject: 'Compiler Lab', venue: 'Computer Lab 2', instructor: 'Prof. V. Vyas' }
+    ],
+    Friday: [
+      { time: '09:30 AM - 11:30 AM', subject: 'Web Technology Lab', venue: 'Computer Lab 3', instructor: 'Prof. J. Patel' },
+      { time: '11:30 AM - 12:00 PM', subject: 'Short Break', venue: 'Campus Canteen', instructor: '-' },
+      { time: '12:00 PM - 01:00 PM', subject: 'Artificial Intelligence', venue: 'L-402', instructor: 'Dr. K. Joshi' },
+      { time: '02:00 PM - 04:00 PM', subject: 'Sports / Library Hours', venue: 'Gymkhana / Library', instructor: '-' }
+    ]
+  };
+
   if (isLoading) {
     return <div style={styles.stateBox}>Loading profile...</div>;
   }
@@ -122,9 +272,18 @@ const PCProfilePage = () => {
             <>
               <button style={styles.editButton} onClick={openEditProfile}>Edit Profile</button>
               <Link to={`/messages/${profileUser.id}`} style={styles.messageButton}>Message</Link>
-              <Link to="/settings" style={styles.moreButton}>
-                <MoreHorizontal size={20} color="#6B7280" />
-              </Link>
+              <div style={{ position: 'relative' }}>
+                <button style={styles.moreButton} onClick={() => setIsDropdownOpen(!isDropdownOpen)}>
+                  <MoreHorizontal size={20} color="#6B7280" />
+                </button>
+                {isDropdownOpen && (
+                  <div style={styles.dropdown}>
+                    <button style={styles.dropdownItem} onClick={handleCopyProfileLink}>Copy Profile Link</button>
+                    <Link to="/settings" style={{...styles.dropdownItem, textDecoration: 'none', color: '#1F2937', display: 'block'}} onClick={() => setIsDropdownOpen(false)}>Settings</Link>
+                    <button style={{...styles.dropdownItem, color: '#EF4444'}} onClick={() => { setIsDropdownOpen(false); logout(); }}>Log out</button>
+                  </div>
+                )}
+              </div>
             </>
           ) : (
             <>
@@ -136,8 +295,15 @@ const PCProfilePage = () => {
                 {alreadyFollowing ? 'Following' : isFollowing ? 'Following...' : 'Follow'}
               </button>
               <Link to={`/messages/${profileUser.id}`} style={styles.messageButton}>Message</Link>
-              <div style={styles.moreButton}>
-                <MoreHorizontal size={20} color="#6B7280" />
+              <div style={{ position: 'relative' }}>
+                <button style={styles.moreButton} onClick={() => setIsDropdownOpen(!isDropdownOpen)}>
+                  <MoreHorizontal size={20} color="#6B7280" />
+                </button>
+                {isDropdownOpen && (
+                  <div style={styles.dropdown}>
+                    <button style={styles.dropdownItem} onClick={handleCopyProfileLink}>Copy Profile Link</button>
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -145,27 +311,229 @@ const PCProfilePage = () => {
       </section>
 
       <nav style={styles.tabNav}>
-        <button style={{ ...styles.tabButton, ...(activeTab === 'activity' ? styles.activeTab : {}) }} onClick={() => setActiveTab('activity')}>Activity</button>
-        <button style={{ ...styles.tabButton, ...(activeTab === 'events' ? styles.activeTab : {}) }} onClick={() => setActiveTab('events')}>Events</button>
-        <button style={{ ...styles.tabButton, ...(activeTab === 'notes' ? styles.activeTab : {}) }} onClick={() => setActiveTab('notes')}>Notes</button>
+        <button style={{ ...styles.tabButton, ...(activeTab === 'activity' ? styles.activeTab : {}) }} onClick={() => setActiveTab('activity')}>Activity ({userPosts.length})</button>
+        <button style={{ ...styles.tabButton, ...(activeTab === 'events' ? styles.activeTab : {}) }} onClick={() => setActiveTab('events')}>Events ({registeredEvents.length})</button>
+        <button style={{ ...styles.tabButton, ...(activeTab === 'notes' ? styles.activeTab : {}) }} onClick={() => setActiveTab('notes')}>Notes ({notes.length})</button>
         <button style={{ ...styles.tabButton, ...(activeTab === 'timetable' ? styles.activeTab : {}) }} onClick={() => setActiveTab('timetable')}>Timetable</button>
       </nav>
 
       <div style={styles.tabContent}>
-        {activeTab === 'activity' && <p>Activity is tied to the live HIVE account. User posts will appear here after the activity endpoint pass.</p>}
-        {activeTab === 'events' && <p>Registered events will appear here after the profile events endpoint pass.</p>}
-        {activeTab === 'notes' && <p>Notes are ready as a tab shell; notebook storage is a separate backend module.</p>}
-        {activeTab === 'timetable' && <p>Timetable is ready as a tab shell; class schedule import is a separate backend module.</p>}
+        {isDataLoading && (activeTab === 'activity' || activeTab === 'events') ? (
+          <p style={{ textAlign: 'center', padding: '24px' }}>Loading tab details...</p>
+        ) : activeTab === 'activity' ? (
+          userPosts.length === 0 ? (
+            <p style={styles.emptyState}>No activity posts yet.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '640px', margin: '0 auto', textAlign: 'left' }}>
+              {userPosts.map((post) => (
+                <PostCard key={post.id} post={post} onPostUpdated={handlePostUpdated} />
+              ))}
+            </div>
+          )
+        ) : activeTab === 'events' ? (
+          registeredEvents.length === 0 ? (
+            <p style={styles.emptyState}>No registered campus events yet.</p>
+          ) : (
+            <div style={styles.eventsGrid}>
+              {registeredEvents.map((event) => (
+                <EventCard 
+                  key={event.id} 
+                  event={event} 
+                  isRegistered={true} 
+                  onRegister={handleEventRegister} 
+                />
+              ))}
+            </div>
+          )
+        ) : activeTab === 'notes' ? (
+          <div style={styles.notesContainer}>
+            {isMyProfile && (
+              <div style={styles.addNoteForm}>
+                <h3 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: 'bold' }}>Add Personal Note</h3>
+                <input 
+                  type="text" 
+                  placeholder="Note Title" 
+                  value={newNoteTitle} 
+                  onChange={(e) => setNewNoteTitle(e.target.value)} 
+                  style={styles.noteInput} 
+                />
+                <textarea 
+                  placeholder="Type your notes here..." 
+                  value={newNoteContent} 
+                  onChange={(e) => setNewNoteContent(e.target.value)} 
+                  style={{ ...styles.noteInput, ...styles.noteTextarea }} 
+                />
+                <button style={styles.addNoteButton} onClick={handleAddNote}>
+                  <Plus size={16} />
+                  <span>Add Note</span>
+                </button>
+              </div>
+            )}
+            
+            <div style={styles.notesList}>
+              {notes.length === 0 ? (
+                <p style={styles.emptyState}>No personal notes saved.</p>
+              ) : (
+                notes.map((note) => (
+                  <div key={note.id} style={styles.noteCard}>
+                    <div style={styles.noteHeader}>
+                      <h4 style={styles.noteTitle}>{note.title}</h4>
+                      {isMyProfile && (
+                        <button style={styles.deleteNoteButton} onClick={() => handleDeleteNote(note.id)} title="Delete note">
+                          <Trash2 size={16} />
+                        </button>
+                      )}
+                    </div>
+                    <p style={styles.noteContent}>{note.content}</p>
+                    <span style={styles.noteDate}>{new Date(note.createdAt).toLocaleString()}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        ) : (
+          <div style={styles.timetableContainer}>
+            <div style={styles.daySelector}>
+              {(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'] as const).map((day) => (
+                <button 
+                  key={day} 
+                  style={{ ...styles.dayButton, ...(selectedDay === day ? styles.activeDayButton : {}) }} 
+                  onClick={() => setSelectedDay(day)}
+                >
+                  {day}
+                </button>
+              ))}
+            </div>
+            
+            <div style={styles.scheduleList}>
+              {mockTimetable[selectedDay].map((slot, index) => (
+                <div key={index} style={styles.slotCard}>
+                  <div style={styles.slotTime}>
+                    <Clock size={16} color="#6B7280" />
+                    <span>{slot.time}</span>
+                  </div>
+                  <div style={styles.slotDetails}>
+                    <h4 style={styles.slotSubject}>{slot.subject}</h4>
+                    <div style={styles.slotMetadata}>
+                      <span style={styles.slotVenue}>Room: {slot.venue}</span>
+                      {slot.instructor !== '-' && (
+                        <span style={styles.slotInstructor}>Instructor: {slot.instructor}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {isEditOpen && (
         <div style={styles.modalBackdrop} onClick={() => setIsEditOpen(false)}>
           <div style={styles.modalContent} onClick={(event) => event.stopPropagation()}>
             <h2 style={styles.modalTitle}>Edit Profile</h2>
+            
+            {/* Cover Image Selector */}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', marginBottom: '6px', color: '#374151' }}>Cover Photo</label>
+              <div style={{ 
+                height: '120px', 
+                backgroundImage: `url(${editForm.coverUrl || 'https://placehold.co/600x200/374151/E5E7EB?text=Cover+Photo'})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                borderRadius: '8px',
+                position: 'relative',
+                border: '1px solid #E5E7EB',
+                overflow: 'hidden'
+              }}>
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  onChange={(e) => handleFileChange(e, 'coverUrl')} 
+                  style={{ 
+                    position: 'absolute', 
+                    inset: 0, 
+                    opacity: 0, 
+                    cursor: 'pointer',
+                    width: '100%',
+                    height: '100%'
+                  }} 
+                />
+                <div style={{
+                  position: 'absolute',
+                  inset: 0,
+                  backgroundColor: 'rgba(0,0,0,0.35)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'white',
+                  fontSize: '12px',
+                  fontWeight: '500',
+                  pointerEvents: 'none',
+                  gap: '4px'
+                }}>
+                  <Camera size={20} />
+                  <span>Change Cover Photo</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Avatar Image Selector */}
+            <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <div style={{
+                width: '72px',
+                height: '72px',
+                borderRadius: '50%',
+                backgroundImage: `url(${editForm.avatarUrl || 'https://placehold.co/100x100/EFEFEF/333?text=HV'})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                position: 'relative',
+                border: '1px solid #E5E7EB',
+                overflow: 'hidden'
+              }}>
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  onChange={(e) => handleFileChange(e, 'avatarUrl')} 
+                  style={{ 
+                    position: 'absolute', 
+                    inset: 0, 
+                    opacity: 0, 
+                    cursor: 'pointer',
+                    width: '100%',
+                    height: '100%'
+                  }} 
+                />
+                <div style={{
+                  position: 'absolute',
+                  inset: 0,
+                  backgroundColor: 'rgba(0,0,0,0.4)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'white',
+                  fontSize: '10px',
+                  fontWeight: 'bold',
+                  textAlign: 'center',
+                  pointerEvents: 'none',
+                  padding: '4px'
+                }}>
+                  Change
+                </div>
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', marginBottom: '2px', color: '#374151' }}>Profile Picture</label>
+                <span style={{ fontSize: '12px', color: '#6B7280' }}>Click the circle to upload from device</span>
+              </div>
+            </div>
+
+            <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', marginBottom: '6px', color: '#374151' }}>Full Name</label>
             <input style={styles.input} placeholder="Name" value={editForm.name} onChange={(event) => setEditForm({ ...editForm, name: event.target.value })} />
+            
+            <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', marginBottom: '6px', color: '#374151' }}>Bio</label>
             <textarea style={{ ...styles.input, ...styles.textarea }} placeholder="Bio" value={editForm.bio} onChange={(event) => setEditForm({ ...editForm, bio: event.target.value })} />
-            <input style={styles.input} placeholder="Avatar URL" value={editForm.avatarUrl} onChange={(event) => setEditForm({ ...editForm, avatarUrl: event.target.value })} />
-            <input style={styles.input} placeholder="Cover URL" value={editForm.coverUrl} onChange={(event) => setEditForm({ ...editForm, coverUrl: event.target.value })} />
+            
             <div style={styles.modalActions}>
               <button style={styles.cancelButton} onClick={() => setIsEditOpen(false)}>Cancel</button>
               <button style={styles.saveProfileButton} onClick={handleSaveProfile}>Save</button>
@@ -185,6 +553,7 @@ const styles: { [key: string]: CSSProperties } = {
     borderRadius: '16px',
     boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
     overflow: 'hidden',
+    border: '1px solid #E5E7EB',
   },
   header: {
     position: 'relative',
@@ -203,6 +572,7 @@ const styles: { [key: string]: CSSProperties } = {
     border: '4px solid white',
     borderRadius: '50%',
     backgroundColor: 'white',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
   },
   profilePicture: {
     width: '128px',
@@ -234,7 +604,7 @@ const styles: { [key: string]: CSSProperties } = {
   stats: {
     display: 'flex',
     gap: '32px',
-    marginBottom: '16px',
+    marginBottom: '20px',
     fontSize: '15px',
   },
   statItem: {
@@ -250,12 +620,14 @@ const styles: { [key: string]: CSSProperties } = {
     gap: '12px',
   },
   editButton: {
-    padding: '10px 16px',
+    padding: '10px 24px',
     backgroundColor: '#F3F4F6',
-    border: '1px solid #E5E7EB',
+    border: 'none',
     borderRadius: '8px',
     fontWeight: '600',
+    fontSize: '15px',
     cursor: 'pointer',
+    color: '#374151',
   },
   followButton: {
     backgroundColor: 'var(--brand-purple)',
@@ -267,125 +639,321 @@ const styles: { [key: string]: CSSProperties } = {
     cursor: 'default',
   },
   messageButton: {
-    padding: '10px 16px',
+    padding: '10px 24px',
     backgroundColor: '#F3F4F6',
-    border: '1px solid #E5E7EB',
+    border: 'none',
     borderRadius: '8px',
     fontWeight: '600',
+    fontSize: '15px',
     cursor: 'pointer',
     textDecoration: 'none',
-    color: '#111827',
+    color: '#374151',
   },
   moreButton: {
-    marginLeft: 'auto',
     padding: '8px',
     backgroundColor: '#F3F4F6',
-    border: '1px solid #E5E7EB',
+    border: 'none',
     borderRadius: '8px',
-    cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
+    cursor: 'pointer',
+  },
+  dropdown: {
+    position: 'absolute',
+    top: '44px',
+    right: 0,
+    backgroundColor: 'white',
+    border: '1px solid #E5E7EB',
+    borderRadius: '8px',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+    zIndex: 50,
+    minWidth: '160px',
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+  },
+  dropdownItem: {
+    padding: '10px 16px',
+    border: 'none',
+    backgroundColor: 'transparent',
+    textAlign: 'left',
+    fontSize: '14px',
+    cursor: 'pointer',
+    fontWeight: '600',
+    width: '100%',
+    color: '#374151',
   },
   tabNav: {
     display: 'flex',
+    justifyContent: 'flex-start',
     borderTop: '1px solid #E5E7EB',
+    borderBottom: '1px solid #E5E7EB',
+    padding: '0 16px',
   },
   tabButton: {
-    padding: '16px 0',
+    padding: '14px 20px',
     border: 'none',
     backgroundColor: 'transparent',
     fontWeight: '600',
     fontSize: '16px',
     color: '#6B7280',
     cursor: 'pointer',
-    flex: 1,
-    borderBottom: '2px solid transparent',
+    position: 'relative',
   },
   activeTab: {
-    color: 'var(--brand-purple, #8B5CF6)',
-    borderBottom: '2px solid var(--brand-purple, #8B5CF6)',
+    color: 'var(--primary-dark)',
+    borderBottom: '2px solid var(--primary-dark)',
   },
   tabContent: {
-    padding: '48px',
-    textAlign: 'center',
+    padding: '24px 32px',
     color: '#6B7280',
-    fontSize: '16px',
   },
+  emptyState: {
+    textAlign: 'center',
+    padding: '40px 20px',
+    fontSize: '15px',
+    color: '#6B7280',
+  },
+  eventsGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+    gap: '20px',
+  },
+  notesContainer: {
+    display: 'grid',
+    gridTemplateColumns: 'minmax(0, 1.2fr) minmax(280px, 1.8fr)',
+    gap: '24px',
+    textAlign: 'left',
+  },
+  addNoteForm: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: '12px',
+    padding: '20px',
+    border: '1px solid #E5E7EB',
+    alignSelf: 'start',
+  },
+  noteInput: {
+    width: '100%',
+    boxSizing: 'border-box',
+    border: '1px solid #D1D5DB',
+    borderRadius: '8px',
+    padding: '10px 12px',
+    fontSize: '14px',
+    marginBottom: '12px',
+    fontFamily: 'inherit',
+    outline: 'none',
+  },
+  noteTextarea: {
+    minHeight: '120px',
+    resize: 'vertical',
+  },
+  addNoteButton: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '10px 16px',
+    backgroundColor: 'var(--brand-purple)',
+    color: 'white',
+    border: 'none',
+    borderRadius: '8px',
+    fontWeight: 'bold',
+    cursor: 'pointer',
+    fontSize: '14px',
+  },
+  notesList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '16px',
+  },
+  noteCard: {
+    backgroundColor: '#FFFFFF',
+    border: '1px solid #E5E7EB',
+    borderRadius: '12px',
+    padding: '16px',
+    boxShadow: '0 2px 4px rgba(0,0,0,0.02)',
+  },
+  noteHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '10px',
+    marginBottom: '8px',
+  },
+  noteTitle: {
+    margin: 0,
+    fontSize: '16px',
+    fontWeight: 'bold',
+    color: '#111827',
+  },
+  deleteNoteButton: {
+    background: 'none',
+    border: 'none',
+    color: '#EF4444',
+    cursor: 'pointer',
+    padding: '4px',
+    borderRadius: '4px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  noteContent: {
+    margin: '0 0 12px 0',
+    fontSize: '14px',
+    color: '#374151',
+    lineHeight: 1.5,
+    whiteSpace: 'pre-wrap',
+  },
+  noteDate: {
+    fontSize: '11px',
+    color: '#9CA3AF',
+  },
+  timetableContainer: {
+    textAlign: 'left',
+  },
+  daySelector: {
+    display: 'flex',
+    gap: '8px',
+    marginBottom: '20px',
+    borderBottom: '1px solid #E5E7EB',
+    paddingBottom: '12px',
+  },
+  dayButton: {
+    padding: '8px 16px',
+    border: 'none',
+    borderRadius: '20px',
+    backgroundColor: '#F3F4F6',
+    color: '#4B5563',
+    fontWeight: '600',
+    fontSize: '14px',
+    cursor: 'pointer',
+  },
+  activeDayButton: {
+    backgroundColor: 'var(--brand-purple)',
+    color: 'white',
+  },
+  scheduleList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '12px',
+  },
+  slotCard: {
+    display: 'flex',
+    gap: '24px',
+    backgroundColor: '#F9FAFB',
+    border: '1px solid #E5E7EB',
+    borderRadius: '12px',
+    padding: '16px',
+    alignItems: 'center',
+  },
+  slotTime: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    width: '200px',
+    minWidth: '200px',
+    fontSize: '14px',
+    color: '#4B5563',
+    fontWeight: '600',
+  },
+  slotDetails: {
+    flex: 1,
+  },
+  slotSubject: {
+    margin: '0 0 4px 0',
+    fontSize: '16px',
+    fontWeight: 'bold',
+    color: '#111827',
+  },
+  slotMetadata: {
+    display: 'flex',
+    gap: '16px',
+    fontSize: '13px',
+    color: '#6B7280',
+  },
+  slotVenue: {
+    fontWeight: '500',
+  },
+  slotInstructor: {},
   modalBackdrop: {
     position: 'fixed',
     inset: 0,
     zIndex: 1000,
-    backgroundColor: 'rgba(17, 24, 39, 0.55)',
+    backgroundColor: 'rgba(17, 24, 39, 0.6)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: '20px',
+    padding: '16px',
   },
   modalContent: {
     width: '100%',
-    maxWidth: '480px',
+    maxWidth: '440px',
     backgroundColor: 'white',
-    borderRadius: '12px',
-    padding: '20px',
+    borderRadius: '16px',
+    padding: '24px',
     border: '1px solid #E5E7EB',
+    maxHeight: '90vh',
+    overflowY: 'auto',
   },
   modalTitle: {
-    margin: '0 0 16px 0',
-    fontSize: '20px',
+    margin: '0 0 20px 0',
+    fontSize: '22px',
+    fontWeight: 'bold',
+    color: '#111827',
   },
   input: {
     width: '100%',
     boxSizing: 'border-box',
     border: '1px solid #D1D5DB',
-    borderRadius: '10px',
-    padding: '12px 14px',
+    borderRadius: '8px',
+    padding: '10px 14px',
     fontSize: '15px',
-    marginBottom: '12px',
+    marginBottom: '16px',
+    outline: 'none',
+    fontFamily: 'inherit',
   },
   textarea: {
-    minHeight: '90px',
+    minHeight: '80px',
     resize: 'vertical',
-    fontFamily: 'inherit',
   },
   modalActions: {
     display: 'flex',
-    justifyContent: 'flex-end',
     gap: '10px',
+    justifyContent: 'flex-end',
+    marginTop: '8px',
   },
   cancelButton: {
     border: 'none',
     borderRadius: '8px',
-    padding: '10px 14px',
+    padding: '10px 16px',
     backgroundColor: '#F3F4F6',
-    fontWeight: 700,
+    fontWeight: 'bold',
     cursor: 'pointer',
+    fontSize: '15px',
   },
   saveProfileButton: {
     border: 'none',
     borderRadius: '8px',
-    padding: '10px 16px',
+    padding: '10px 20px',
     backgroundColor: 'var(--brand-purple)',
     color: 'white',
-    fontWeight: 700,
+    fontWeight: 'bold',
     cursor: 'pointer',
+    fontSize: '15px',
   },
   stateBox: {
-    maxWidth: '1000px',
-    margin: '20px auto',
-    padding: '24px',
+    padding: '40px 24px',
     color: '#6B7280',
-    backgroundColor: 'white',
-    borderRadius: '12px',
+    textAlign: 'center',
   },
   errorBox: {
-    maxWidth: '1000px',
-    margin: '20px auto',
+    margin: '16px',
     padding: '16px',
     backgroundColor: '#FEF2F2',
     border: '1px solid #FECACA',
     borderRadius: '12px',
     color: '#DC2626',
+    textAlign: 'center',
   },
 };
 

@@ -550,6 +550,22 @@ async function demoRequest<T>(path: string, options: RequestOptions = {}): Promi
         return finish({ users: db.users.slice().sort((a, b) => Number(b.points || 0) - Number(a.points || 0)).map((user, index) => ({ ...publicDemoUser(user), rank: index + 1 })) } as T);
     }
 
+    if (url.pathname === '/api/conversations' && method === 'GET') {
+        const user = requireDemoUser(db);
+        const conversations = db.conversations
+            .filter((candidate) => candidate.participantIds.includes(user.id))
+            .map((convo) => {
+                const otherId = convo.participantIds.find((id) => id !== user.id);
+                const otherUser = db.users.find((u) => u.id === otherId);
+                return {
+                    ...convo,
+                    otherUser: publicDemoUser(otherUser),
+                };
+            })
+            .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+        return finish({ conversations } as T);
+    }
+
     if (parts[0] === 'api' && parts[1] === 'conversations' && parts[2] && method === 'GET') {
         const user = requireDemoUser(db);
         const otherUser = db.users.find((candidate) => candidate.id === parts[2]);
@@ -829,6 +845,9 @@ export const registerForEvent = (eventId: string) =>
 
 export const getLeaderboard = () =>
     apiRequest<{ users: LeaderboardUser[] }>('/api/leaderboard');
+
+export const getConversations = () =>
+    apiRequest<{ conversations: (Conversation & { otherUser?: User | null })[] }>('/api/conversations');
 
 export const getConversation = (otherUserId: string) =>
     apiRequest<{ conversation: Conversation }>(`/api/conversations/${otherUserId}`);

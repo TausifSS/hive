@@ -904,6 +904,17 @@ async function handleRoute(req, res) {
     return;
   }
 
+  if (url.pathname === '/api/conversations' && req.method === 'GET') {
+    const currentUser = await requireUser(req);
+    if (!currentUser) {
+      send(req, res, 401, { error: 'Authentication required' });
+      return;
+    }
+    const conversations = await db.listConversationsForUser(currentUser.id);
+    send(req, res, 200, { conversations });
+    return;
+  }
+
   if (pathParts[0] === 'api' && pathParts[1] === 'conversations' && pathParts[2] && req.method === 'GET') {
     const currentUser = await requireUser(req);
     if (!currentUser) {

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom'; // Link import kiya
-import { LogOut, UserCircle } from 'lucide-react';
+import { MessageSquare, UserCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const roleLabels = {
@@ -10,7 +10,7 @@ const roleLabels = {
 };
 
 const TopNav = () => {
-    const { user, logout } = useAuth();
+    const { user } = useAuth();
 
     return (
         <header style={styles.header}>
@@ -20,12 +20,12 @@ const TopNav = () => {
             </div>
             <div style={styles.actions}>
                 {user && <span style={styles.roleBadge}>{roleLabels[user.role]}</span>}
-                <Link to="/profile" style={styles.iconContainer}>
+                <Link to="/messages" style={styles.iconContainer} title="Direct Messages">
+                    <MessageSquare size={24} color="var(--primary-dark)" style={{ marginRight: '4px' }} />
+                </Link>
+                <Link to="/profile" style={styles.iconContainer} title="Profile">
                     <UserCircle size={28} color="var(--primary-dark)" />
                 </Link>
-                <button style={styles.logoutButton} onClick={logout} title="Logout">
-                    <LogOut size={20} />
-                </button>
             </div>
         </header>
     );
