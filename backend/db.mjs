@@ -1267,4 +1267,4 @@ export const db = {
   createTopStory,
 };
 
-export { DB_FILE };
+export { DB_FILE, isPostgres };

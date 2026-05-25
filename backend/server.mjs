@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
-import { db, DB_FILE } from './db.mjs';
+import { db, DB_FILE, isPostgres } from './db.mjs';
 
 const PORT = Number(process.env.PORT || 4000);
 const OTP_DELIVERY_MODE = (process.env.OTP_DELIVERY_MODE || (process.env.RESEND_API_KEY ? 'email' : 'development')).toLowerCase();
