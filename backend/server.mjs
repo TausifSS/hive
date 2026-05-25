@@ -14,20 +14,26 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE
 const MAX_BODY_BYTES = 5_000_000;
 const MIN_PASSWORD_LENGTH = 6;
 
-const jsonHeaders = {
-  'Content-Type': 'application/json',
-  'Access-Control-Allow-Origin': process.env.CLIENT_ORIGIN || '*',
-  'Access-Control-Allow-Methods': 'GET,POST,PATCH,DELETE,OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type,Authorization',
-};
+function getJsonHeaders(req) {
+  const origin = req.headers.origin;
+  const allowedOrigins = ['http://localhost:5173', 'http://localhost:5174', 'https://tausifss.github.io'];
+  const corsOrigin = allowedOrigins.includes(origin) ? origin : (process.env.CLIENT_ORIGIN || '*');
 
-function send(res, status, payload) {
-  res.writeHead(status, jsonHeaders);
+  return {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': corsOrigin,
+    'Access-Control-Allow-Methods': 'GET,POST,PATCH,DELETE,OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+  };
+}
+
+function send(req, res, status, payload) {
+  res.writeHead(status, getJsonHeaders(req));
   res.end(JSON.stringify(payload));
 }
 
-function notFound(res) {
-  send(res, 404, { error: 'Not found' });
+function notFound(req, res) {
+  send(req, res, 404, { error: 'Not found' });
 }
 
 function parseBody(req) {
@@ -53,10 +59,10 @@ function parseBody(req) {
   });
 }
 
-function requireUser(req) {
+async function requireUser(req) {
   const auth = req.headers.authorization || '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  return db.getUserBySessionToken(token);
+  return await db.getUserBySessionToken(token);
 }
 
 function getBearerToken(req) {
@@ -68,41 +74,41 @@ function isAdmin(user) {
   return user?.role === 'Admin';
 }
 
-function sendForbidden(res) {
-  send(res, 403, { error: 'You do not have permission for this action' });
+function sendForbidden(req, res) {
+  send(req, res, 403, { error: 'You do not have permission for this action' });
 }
 
 function validatePassword(password) {
   return typeof password === 'string' && password.length >= MIN_PASSWORD_LENGTH;
 }
 
-function sendSession(res, user) {
-  const session = db.createSession(user.id);
-  send(res, 200, { token: session.token, expiresAt: session.expiresAt, user: db.publicUser(user) });
+async function sendSession(req, res, user) {
+  const session = await db.createSession(user.id);
+  send(req, res, 200, { token: session.token, expiresAt: session.expiresAt, user: db.publicUser(user) });
 }
 
-function findAdminForLogin(adminId, password) {
+async function findAdminForLogin(adminId, password) {
   const loginId = String(adminId || '').trim();
   const loginPassword = String(password || '');
 
   const existingAdmin = loginId.includes('@')
-    ? db.getUserByEmail(loginId)
-    : db.getUserByIdOrHandle(loginId);
+    ? await db.getUserByEmail(loginId)
+    : await db.getUserByIdOrHandle(loginId);
 
   if (existingAdmin?.role === 'Admin' && db.verifyPassword(loginPassword, existingAdmin.passwordHash)) {
     return existingAdmin;
   }
 
   if (ADMIN_LOGIN_PASSWORD && loginId === ADMIN_LOGIN_ID && loginPassword === ADMIN_LOGIN_PASSWORD) {
-    const directAdmin = db.getUserById('college-admin');
+    const directAdmin = await db.getUserById('college-admin');
     if (directAdmin?.role === 'Admin') return directAdmin;
     if (directAdmin) {
-      const admin = db.updateUserRole(directAdmin.id, 'Admin');
-      db.setUserPassword(admin.id, ADMIN_LOGIN_PASSWORD);
+      const admin = await db.updateUserRole(directAdmin.id, 'Admin');
+      await db.setUserPassword(admin.id, ADMIN_LOGIN_PASSWORD);
       return admin;
     }
 
-    return db.createUser({
+    return await db.createUser({
       id: 'college-admin',
       name: 'College Admin',
       email: 'college.admin@ghrcemp.raisoni.net',
@@ -183,13 +189,13 @@ async function deliverOtpEmail(email, otp, expiresAt) {
   return { mode: 'email', delivered: true };
 }
 
-function campusAssistantReply(message, user) {
+async function campusAssistantReply(message, user) {
   const text = String(message || '').trim();
   const lowerText = text.toLowerCase();
-  const eventCount = db.listEvents().length;
-  const postCount = db.listPosts().length;
-  const storyCount = db.listTopStories().length;
-  const globalChatCount = db.listChannelMessages('global')?.length || 0;
+  const eventCount = (await db.listEvents()).length;
+  const postCount = (await db.listPosts()).length;
+  const storyCount = (await db.listTopStories()).length;
+  const globalChatCount = (await db.listChannelMessages('global'))?.length || 0;
 
   if (!text) return 'Ask me about events, points, posting, chat, profile, or admin access.';
   if (lowerText.includes('status') || lowerText.includes('working')) return `HIVE backend is working: ${postCount} posts, ${eventCount} events, ${storyCount} official stories, and ${globalChatCount} global chat messages are in the database.`;
@@ -209,7 +215,7 @@ function campusAssistantReply(message, user) {
 
 async function handleRoute(req, res) {
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, jsonHeaders);
+    res.writeHead(204, getJsonHeaders(req));
     res.end();
     return;
   }
@@ -218,10 +224,10 @@ async function handleRoute(req, res) {
   const pathParts = url.pathname.split('/').filter(Boolean);
 
   if (url.pathname === '/api/health' && req.method === 'GET') {
-    send(res, 200, {
+    send(req, res, 200, {
       status: 'ok',
       service: 'hive-api',
-      storage: 'sqlite',
+      storage: isPostgres ? 'postgresql' : 'sqlite',
       database: DB_FILE,
       time: new Date().toISOString(),
     });
@@ -231,22 +237,22 @@ async function handleRoute(req, res) {
   if (url.pathname === '/api/auth/request-otp' && req.method === 'POST') {
     const body = await parseBody(req);
     if (!db.isCollegeEmail(body.email)) {
-      send(res, 400, { error: 'Use your college email address to continue' });
+      send(req, res, 400, { error: 'Use your college email address to continue' });
       return;
     }
 
-    const user = db.getUserByEmail(body.email);
+    const user = await db.getUserByEmail(body.email);
     if (user?.blockedAt) {
-      send(res, 403, { error: 'This account is blocked. Contact college admin.' });
+      send(req, res, 403, { error: 'This account is blocked. Contact college admin.' });
       return;
     }
 
-    const otp = db.createLoginOtp(body.email);
+    const otp = await db.createLoginOtp(body.email);
     let delivery;
     try {
       delivery = await deliverOtpEmail(body.email, otp.otp, otp.expiresAt);
     } catch (emailError) {
-      send(res, 502, { error: emailError.message });
+      send(req, res, 502, { error: emailError.message });
       return;
     }
 
@@ -263,7 +269,7 @@ async function handleRoute(req, res) {
       payload.devOtp = otp.otp;
     }
 
-    send(res, 200, {
+    send(req, res, 200, {
       ...payload,
     });
     return;
@@ -272,51 +278,51 @@ async function handleRoute(req, res) {
   if ((url.pathname === '/api/auth/login' || url.pathname === '/api/auth/student-login') && req.method === 'POST') {
     const body = await parseBody(req);
     if (!db.isCollegeEmail(body.email)) {
-      send(res, 400, { error: 'Use your college email address to continue' });
+      send(req, res, 400, { error: 'Use your college email address to continue' });
       return;
     }
 
-    const user = db.getUserByEmail(body.email);
+    const user = await db.getUserByEmail(body.email);
     if (!user) {
-      send(res, 404, { error: 'Account not found. Use Forgot Password to verify email and set your password.' });
+      send(req, res, 404, { error: 'Account not found. Use Forgot Password to verify email and set your password.' });
       return;
     }
     if (user.blockedAt) {
-      send(res, 403, { error: 'This account is blocked. Contact college admin.' });
+      send(req, res, 403, { error: 'This account is blocked. Contact college admin.' });
       return;
     }
     if (!db.verifyPassword(body.password, user.passwordHash)) {
-      send(res, 401, { error: 'Invalid email or password' });
+      send(req, res, 401, { error: 'Invalid email or password' });
       return;
     }
 
-    sendSession(res, user);
+    await sendSession(req, res, user);
     return;
   }
 
   if (url.pathname === '/api/auth/student/set-password' && req.method === 'POST') {
     const body = await parseBody(req);
     if (!db.isCollegeEmail(body.email)) {
-      send(res, 400, { error: 'Use your college email address to continue' });
+      send(req, res, 400, { error: 'Use your college email address to continue' });
       return;
     }
     if (!validatePassword(body.password)) {
-      send(res, 400, { error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` });
+      send(req, res, 400, { error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` });
       return;
     }
 
-    const result = db.verifyLoginOtp(body.email, body.otp);
+    const result = await db.verifyLoginOtp(body.email, body.otp);
     if (!result.ok) {
-      send(res, 401, { error: result.error });
+      send(req, res, 401, { error: result.error });
       return;
     }
 
-    const user = db.getOrCreateStudentWithPassword({
+    const user = await db.getOrCreateStudentWithPassword({
       email: body.email,
       name: body.name,
       password: body.password,
     });
-    sendSession(res, user);
+    await sendSession(req, res, user);
     return;
   }
 
@@ -325,30 +331,30 @@ async function handleRoute(req, res) {
     try {
       const profile = await verifyGoogleIdToken(body.idToken);
       if (!db.isCollegeEmail(profile.email)) {
-        send(res, 400, { error: 'Use your college Google account to continue' });
+        send(req, res, 400, { error: 'Use your college Google account to continue' });
         return;
       }
 
-      let user = db.getUserByEmail(profile.email);
+      let user = await db.getUserByEmail(profile.email);
       if (!user) {
-        user = db.createUser({
+        user = await db.createUser({
           name: profile.name,
           email: profile.email,
           password: randomUUID(),
           role: 'student',
         });
         if (profile.picture) {
-          user = db.updateUserProfile(user.id, { name: user.name, avatarUrl: profile.picture });
+          user = await db.updateUserProfile(user.id, { name: user.name, avatarUrl: profile.picture });
         }
       }
       if (user.blockedAt) {
-        send(res, 403, { error: 'This account is blocked. Contact college admin.' });
+        send(req, res, 403, { error: 'This account is blocked. Contact college admin.' });
         return;
       }
 
-      sendSession(res, user);
+      await sendSession(req, res, user);
     } catch (googleError) {
-      send(res, 502, { error: googleError.message });
+      send(req, res, 502, { error: googleError.message });
     }
     return;
   }
@@ -356,371 +362,378 @@ async function handleRoute(req, res) {
   if (url.pathname === '/api/auth/club-login' && req.method === 'POST') {
     const body = await parseBody(req);
     if (!db.isCollegeEmail(body.email)) {
-      send(res, 400, { error: 'Use your college email address to continue' });
+      send(req, res, 400, { error: 'Use your college email address to continue' });
       return;
     }
 
-    const user = db.getUserByEmail(body.email);
+    const user = await db.getUserByEmail(body.email);
     if (user) {
       if (user.blockedAt) {
-        send(res, 403, { error: 'This account is blocked. Contact college admin.' });
+        send(req, res, 403, { error: 'This account is blocked. Contact college admin.' });
         return;
       }
       if (!db.verifyPassword(body.password, user.passwordHash)) {
-        send(res, 401, { error: 'Invalid email or password' });
+        send(req, res, 401, { error: 'Invalid email or password' });
         return;
       }
-      sendSession(res, user);
+      await sendSession(req, res, user);
       return;
     }
 
-    const application = db.getClubApplicationByEmail(body.email);
+    const application = await db.getClubApplicationByEmail(body.email);
     if (application) {
-      send(res, 202, { application: db.publicClubApplication(application), error: `Club verification is ${application.status}` });
+      send(req, res, 202, { application: db.publicClubApplication(application), error: `Club verification is ${application.status}` });
       return;
     }
 
-    send(res, 404, { error: 'Club account not found. Upload certificate for verification.' });
+    send(req, res, 404, { error: 'Club account not found. Upload certificate for verification.' });
     return;
   }
 
   if (url.pathname === '/api/auth/club/register' && req.method === 'POST') {
     const body = await parseBody(req);
     if (!db.isCollegeEmail(body.email)) {
-      send(res, 400, { error: 'Use your club official college email' });
+      send(req, res, 400, { error: 'Use your club official college email' });
       return;
     }
     if (!body.clubName || !body.certificateName || !body.certificateData) {
-      send(res, 400, { error: 'Club name and registration certificate are required' });
+      send(req, res, 400, { error: 'Club name and registration certificate are required' });
       return;
     }
     if (!validatePassword(body.password)) {
-      send(res, 400, { error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` });
+      send(req, res, 400, { error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` });
       return;
     }
 
-    const existingUser = db.getUserByEmail(body.email);
+    const existingUser = await db.getUserByEmail(body.email);
     if (existingUser?.role === 'club_admin') {
-      send(res, 409, { error: 'Club account is already verified. Use the main Login tab.' });
+      send(req, res, 409, { error: 'Club account is already verified. Use Club login.' });
       return;
     }
     if (existingUser) {
-      send(res, 409, { error: 'This email already belongs to another HIVE account.' });
+      send(req, res, 409, { error: 'This email already belongs to another HIVE account.' });
       return;
     }
 
-    const application = db.upsertClubApplication({
+    const application = await db.upsertClubApplication({
       clubName: body.clubName,
       officialEmail: body.email,
       password: body.password,
       certificateName: body.certificateName,
       certificateData: body.certificateData,
     });
-    send(res, 202, { application: db.publicClubApplication(application) });
+    send(req, res, 202, { application: db.publicClubApplication(application) });
     return;
   }
 
   if (url.pathname === '/api/auth/club/status' && req.method === 'GET') {
     const email = url.searchParams.get('email');
     if (!email) {
-      send(res, 400, { error: 'email is required' });
+      send(req, res, 400, { error: 'email is required' });
       return;
     }
 
-    const user = db.getUserByEmail(email);
+    const user = await db.getUserByEmail(email);
     if (user?.role === 'club_admin') {
-      send(res, 200, { status: 'approved', user: db.publicUser(user) });
+      send(req, res, 200, { status: 'approved', user: db.publicUser(user) });
       return;
     }
 
-    const application = db.getClubApplicationByEmail(email);
+    const application = await db.getClubApplicationByEmail(email);
     if (!application) {
-      send(res, 404, { error: 'No club verification request found' });
+      send(req, res, 404, { error: 'No club verification request found' });
       return;
     }
-    send(res, 200, { status: application.status, application: db.publicClubApplication(application) });
+    send(req, res, 200, { status: application.status, application: db.publicClubApplication(application) });
     return;
   }
 
   if (url.pathname === '/api/auth/admin-login' && req.method === 'POST') {
     const body = await parseBody(req);
-    const admin = findAdminForLogin(body.adminId, body.password);
+    const admin = await findAdminForLogin(body.adminId, body.password);
     if (!admin) {
-      send(res, 401, { error: 'Invalid admin ID or password' });
+      send(req, res, 401, { error: 'Invalid admin ID or password' });
       return;
     }
     if (admin.blockedAt) {
-      send(res, 403, { error: 'This admin account is blocked.' });
+      send(req, res, 403, { error: 'This admin account is blocked.' });
       return;
     }
 
-    sendSession(res, admin);
+    await sendSession(req, res, admin);
     return;
   }
 
   if (url.pathname === '/api/auth/verify-otp' && req.method === 'POST') {
     const body = await parseBody(req);
     if (!db.isCollegeEmail(body.email)) {
-      send(res, 400, { error: 'Use your college email address to continue' });
+      send(req, res, 400, { error: 'Use your college email address to continue' });
       return;
     }
 
-    const result = db.verifyLoginOtp(body.email, body.otp);
+    const result = await db.verifyLoginOtp(body.email, body.otp);
     if (!result.ok) {
-      send(res, 401, { error: result.error });
+      send(req, res, 401, { error: result.error });
       return;
     }
 
-    const user = db.getOrCreateOtpUser({ email: body.email, name: body.name });
+    const user = await db.getOrCreateOtpUser({ email: body.email, name: body.name });
     if (user.blockedAt) {
-      send(res, 403, { error: 'This account is blocked. Contact college admin.' });
+      send(req, res, 403, { error: 'This account is blocked. Contact college admin.' });
       return;
     }
 
-    sendSession(res, user);
+    await sendSession(req, res, user);
     return;
   }
 
   if (url.pathname === '/api/auth/register' && req.method === 'POST') {
-    send(res, 410, { error: 'Direct registration is disabled. Use college email OTP login.' });
+    send(req, res, 410, { error: 'Direct registration is disabled. Use college email OTP login.' });
     return;
   }
 
   if (url.pathname === '/api/auth/logout' && req.method === 'POST') {
-    db.revokeSession(getBearerToken(req));
-    send(res, 200, { ok: true });
+    await db.revokeSession(getBearerToken(req));
+    send(req, res, 200, { ok: true });
     return;
   }
 
   if (url.pathname === '/api/auth/me' && req.method === 'GET') {
-    const user = requireUser(req);
+    const user = await requireUser(req);
     if (!user) {
-      send(res, 401, { error: 'Authentication required' });
+      send(req, res, 401, { error: 'Authentication required' });
       return;
     }
-    send(res, 200, { user: db.publicUser(user) });
+    send(req, res, 200, { user: db.publicUser(user) });
     return;
   }
 
   if (url.pathname === '/api/users/me' && req.method === 'PATCH') {
-    const currentUser = requireUser(req);
+    const currentUser = await requireUser(req);
     if (!currentUser) {
-      send(res, 401, { error: 'Authentication required' });
+      send(req, res, 401, { error: 'Authentication required' });
       return;
     }
 
     const body = await parseBody(req);
-    const updatedUser = db.updateUserProfile(currentUser.id, body);
+    const updatedUser = await db.updateUserProfile(currentUser.id, body);
     if (updatedUser?.error === 'name-required') {
-      send(res, 400, { error: 'Name is required' });
+      send(req, res, 400, { error: 'Name is required' });
       return;
     }
-    send(res, 200, { user: db.publicUser(updatedUser) });
+    send(req, res, 200, { user: db.publicUser(updatedUser) });
     return;
   }
 
   if (url.pathname === '/api/users' && req.method === 'GET') {
-    send(res, 200, { users: db.listUsers().map(db.publicUser) });
+    const users = await db.listUsers();
+    send(req, res, 200, { users: users.map(db.publicUser) });
     return;
   }
 
   if (url.pathname === '/api/stories' && req.method === 'GET') {
-    send(res, 200, { stories: db.listTopStories() });
+    const stories = await db.listTopStories();
+    send(req, res, 200, { stories });
     return;
   }
 
   if (url.pathname === '/api/stories' && req.method === 'POST') {
-    const currentUser = requireUser(req);
+    const currentUser = await requireUser(req);
     if (!currentUser) {
-      send(res, 401, { error: 'Authentication required' });
+      send(req, res, 401, { error: 'Authentication required' });
       return;
     }
     if (!isAdmin(currentUser)) {
-      sendForbidden(res);
+      sendForbidden(req, res);
       return;
     }
 
     const body = await parseBody(req);
     if (!body.title || !body.summary) {
-      send(res, 400, { error: 'title and summary are required' });
+      send(req, res, 400, { error: 'title and summary are required' });
       return;
     }
-    send(res, 201, { story: db.createTopStory({ ...body, authorId: currentUser.id }) });
+    const story = await db.createTopStory({ ...body, authorId: currentUser.id });
+    send(req, res, 201, { story });
     return;
   }
 
   if (pathParts[0] === 'api' && pathParts[1] === 'stories' && pathParts[2] && req.method === 'GET') {
-    const story = db.getTopStoryById(pathParts[2]);
+    const story = await db.getTopStoryById(pathParts[2]);
     if (!story) {
-      notFound(res);
+      notFound(req, res);
       return;
     }
-    send(res, 200, { story });
+    send(req, res, 200, { story });
     return;
   }
 
   if (url.pathname === '/api/admin/users' && req.method === 'GET') {
-    const currentUser = requireUser(req);
+    const currentUser = await requireUser(req);
     if (!currentUser) {
-      send(res, 401, { error: 'Authentication required' });
+      send(req, res, 401, { error: 'Authentication required' });
       return;
     }
     if (!isAdmin(currentUser)) {
-      sendForbidden(res);
+      sendForbidden(req, res);
       return;
     }
-    send(res, 200, { users: db.listUsers().map(db.publicUser) });
+    const users = await db.listUsers();
+    send(req, res, 200, { users: users.map(db.publicUser) });
     return;
   }
 
   if (url.pathname === '/api/admin/club-applications' && req.method === 'GET') {
-    const currentUser = requireUser(req);
+    const currentUser = await requireUser(req);
     if (!currentUser) {
-      send(res, 401, { error: 'Authentication required' });
+      send(req, res, 401, { error: 'Authentication required' });
       return;
     }
     if (!isAdmin(currentUser)) {
-      sendForbidden(res);
+      sendForbidden(req, res);
       return;
     }
-    send(res, 200, { applications: db.listClubApplications().map(db.publicClubApplication) });
+    const applications = await db.listClubApplications();
+    send(req, res, 200, { applications: applications.map(db.publicClubApplication) });
     return;
   }
 
   if (pathParts[0] === 'api' && pathParts[1] === 'admin' && pathParts[2] === 'club-applications' && pathParts[3] && pathParts[4] === 'review' && req.method === 'PATCH') {
-    const currentUser = requireUser(req);
+    const currentUser = await requireUser(req);
     if (!currentUser) {
-      send(res, 401, { error: 'Authentication required' });
+      send(req, res, 401, { error: 'Authentication required' });
       return;
     }
     if (!isAdmin(currentUser)) {
-      sendForbidden(res);
+      sendForbidden(req, res);
       return;
     }
 
     const body = await parseBody(req);
     if (!['approved', 'rejected'].includes(body.status)) {
-      send(res, 400, { error: 'status must be approved or rejected' });
+      send(req, res, 400, { error: 'status must be approved or rejected' });
       return;
     }
 
-    const application = db.reviewClubApplication(pathParts[3], body.status, currentUser.id, body.note || '');
+    const application = await db.reviewClubApplication(pathParts[3], body.status, currentUser.id, body.note || '');
     if (!application) {
-      notFound(res);
+      notFound(req, res);
       return;
     }
 
-    send(res, 200, { application: db.publicClubApplication(application) });
+    send(req, res, 200, { application: db.publicClubApplication(application) });
     return;
   }
 
   if (pathParts[0] === 'api' && pathParts[1] === 'admin' && pathParts[2] === 'users' && pathParts[3] && pathParts[4] === 'role' && req.method === 'PATCH') {
-    const currentUser = requireUser(req);
+    const currentUser = await requireUser(req);
     if (!currentUser) {
-      send(res, 401, { error: 'Authentication required' });
+      send(req, res, 401, { error: 'Authentication required' });
       return;
     }
     if (!isAdmin(currentUser)) {
-      sendForbidden(res);
+      sendForbidden(req, res);
       return;
     }
 
-    const targetUser = db.getUserById(pathParts[3]);
+    const targetUser = await db.getUserById(pathParts[3]);
     const body = await parseBody(req);
     const allowedRoles = ['student', 'club_admin', 'Admin'];
     if (!targetUser) {
-      notFound(res);
+      notFound(req, res);
       return;
     }
     if (!allowedRoles.includes(body.role)) {
-      send(res, 400, { error: 'Invalid role' });
+      send(req, res, 400, { error: 'Invalid role' });
       return;
     }
     if (targetUser.id === currentUser.id && body.role !== 'Admin') {
-      send(res, 400, { error: 'College admin cannot remove their own admin role' });
+      send(req, res, 400, { error: 'College admin cannot remove their own admin role' });
       return;
     }
 
-    send(res, 200, { user: db.publicUser(db.updateUserRole(targetUser.id, body.role)) });
+    const updated = await db.updateUserRole(targetUser.id, body.role);
+    send(req, res, 200, { user: db.publicUser(updated) });
     return;
   }
 
   if (pathParts[0] === 'api' && pathParts[1] === 'admin' && pathParts[2] === 'users' && pathParts[3] && pathParts[4] === 'block' && req.method === 'PATCH') {
-    const currentUser = requireUser(req);
+    const currentUser = await requireUser(req);
     if (!currentUser) {
-      send(res, 401, { error: 'Authentication required' });
+      send(req, res, 401, { error: 'Authentication required' });
       return;
     }
     if (!isAdmin(currentUser)) {
-      sendForbidden(res);
+      sendForbidden(req, res);
       return;
     }
 
-    const targetUser = db.getUserById(pathParts[3]);
+    const targetUser = await db.getUserById(pathParts[3]);
     const body = await parseBody(req);
     if (!targetUser) {
-      notFound(res);
+      notFound(req, res);
       return;
     }
     if (targetUser.id === currentUser.id) {
-      send(res, 400, { error: 'College admin cannot block their own account' });
+      send(req, res, 400, { error: 'College admin cannot block their own account' });
       return;
     }
 
-    send(res, 200, { user: db.publicUser(db.setUserBlocked(targetUser.id, Boolean(body.blocked))) });
+    const updated = await db.setUserBlocked(targetUser.id, Boolean(body.blocked));
+    send(req, res, 200, { user: db.publicUser(updated) });
     return;
   }
 
   if (pathParts[0] === 'api' && pathParts[1] === 'admin' && pathParts[2] === 'users' && pathParts[3] && req.method === 'DELETE') {
-    const currentUser = requireUser(req);
+    const currentUser = await requireUser(req);
     if (!currentUser) {
-      send(res, 401, { error: 'Authentication required' });
+      send(req, res, 401, { error: 'Authentication required' });
       return;
     }
     if (!isAdmin(currentUser)) {
-      sendForbidden(res);
+      sendForbidden(req, res);
       return;
     }
 
-    const targetUser = db.getUserById(pathParts[3]);
+    const targetUser = await db.getUserById(pathParts[3]);
     if (!targetUser) {
-      notFound(res);
+      notFound(req, res);
       return;
     }
     if (targetUser.id === currentUser.id) {
-      send(res, 400, { error: 'College admin cannot delete their own account' });
+      send(req, res, 400, { error: 'College admin cannot delete their own account' });
       return;
     }
 
-    db.deleteUser(targetUser.id);
-    send(res, 200, { ok: true });
+    await db.deleteUser(targetUser.id);
+    send(req, res, 200, { ok: true });
     return;
   }
 
   if (pathParts[0] === 'api' && pathParts[1] === 'users' && pathParts[2] && req.method === 'GET') {
-    const user = db.getUserByIdOrHandle(pathParts[2]);
+    const user = await db.getUserByIdOrHandle(pathParts[2]);
     if (!user) {
-      notFound(res);
+      notFound(req, res);
       return;
     }
-    send(res, 200, { user: db.publicUser(user) });
+    send(req, res, 200, { user: db.publicUser(user) });
     return;
   }
 
   if (pathParts[0] === 'api' && pathParts[1] === 'users' && pathParts[3] === 'follow' && req.method === 'POST') {
-    const currentUser = requireUser(req);
-    const targetUser = db.getUserById(pathParts[2]);
+    const currentUser = await requireUser(req);
+    const targetUser = await db.getUserById(pathParts[2]);
     if (!currentUser) {
-      send(res, 401, { error: 'Authentication required' });
+      send(req, res, 401, { error: 'Authentication required' });
       return;
     }
     if (!targetUser) {
-      notFound(res);
+      notFound(req, res);
       return;
     }
 
-    const result = db.followUser(currentUser.id, targetUser.id);
-    send(res, 200, {
+    const result = await db.followUser(currentUser.id, targetUser.id);
+    send(req, res, 200, {
       user: db.publicUser(result.user),
       currentUser: db.publicUser(result.currentUser),
     });
@@ -728,109 +741,114 @@ async function handleRoute(req, res) {
   }
 
   if (url.pathname === '/api/posts' && req.method === 'GET') {
-    send(res, 200, { posts: db.listPosts() });
+    const posts = await db.listPosts();
+    send(req, res, 200, { posts });
     return;
   }
 
   if (url.pathname === '/api/posts' && req.method === 'POST') {
-    const currentUser = requireUser(req);
+    const currentUser = await requireUser(req);
     if (!currentUser) {
-      send(res, 401, { error: 'Authentication required' });
+      send(req, res, 401, { error: 'Authentication required' });
       return;
     }
 
     const body = await parseBody(req);
     if (!body.content && !body.mediaUrl) {
-      send(res, 400, { error: 'content or mediaUrl is required' });
+      send(req, res, 400, { error: 'content or mediaUrl is required' });
       return;
     }
 
-    const post = db.createPost({
+    const post = await db.createPost({
       authorId: currentUser.id,
       content: body.content || '',
       mediaUrl: body.mediaUrl || '',
     });
-    send(res, 201, { post });
+    send(req, res, 201, { post });
     return;
   }
 
   if (pathParts[0] === 'api' && pathParts[1] === 'posts' && pathParts[3] === 'like' && req.method === 'POST') {
-    const currentUser = requireUser(req);
-    const post = db.getPostById(pathParts[2]);
+    const currentUser = await requireUser(req);
+    const post = await db.getPostById(pathParts[2]);
     if (!currentUser) {
-      send(res, 401, { error: 'Authentication required' });
+      send(req, res, 401, { error: 'Authentication required' });
       return;
     }
     if (!post) {
-      notFound(res);
+      notFound(req, res);
       return;
     }
 
-    send(res, 200, { post: db.togglePostLike(post.id, currentUser.id) });
+    const updated = await db.togglePostLike(post.id, currentUser.id);
+    send(req, res, 200, { post: updated });
     return;
   }
 
   if (pathParts[0] === 'api' && pathParts[1] === 'posts' && pathParts[3] === 'save' && req.method === 'POST') {
-    const currentUser = requireUser(req);
-    const post = db.getPostById(pathParts[2]);
+    const currentUser = await requireUser(req);
+    const post = await db.getPostById(pathParts[2]);
     if (!currentUser) {
-      send(res, 401, { error: 'Authentication required' });
+      send(req, res, 401, { error: 'Authentication required' });
       return;
     }
     if (!post) {
-      notFound(res);
+      notFound(req, res);
       return;
     }
 
-    send(res, 200, { post: db.togglePostSave(post.id, currentUser.id) });
+    const updated = await db.togglePostSave(post.id, currentUser.id);
+    send(req, res, 200, { post: updated });
     return;
   }
 
   if (pathParts[0] === 'api' && pathParts[1] === 'posts' && pathParts[3] === 'comments' && req.method === 'POST') {
-    const currentUser = requireUser(req);
-    const post = db.getPostById(pathParts[2]);
+    const currentUser = await requireUser(req);
+    const post = await db.getPostById(pathParts[2]);
     if (!currentUser) {
-      send(res, 401, { error: 'Authentication required' });
+      send(req, res, 401, { error: 'Authentication required' });
       return;
     }
     if (!post) {
-      notFound(res);
+      notFound(req, res);
       return;
     }
 
     const body = await parseBody(req);
     if (!body.content) {
-      send(res, 400, { error: 'content is required' });
+      send(req, res, 400, { error: 'content is required' });
       return;
     }
 
-    send(res, 201, db.addPostComment(post.id, currentUser.id, body.content));
+    const commentRes = await db.addPostComment(post.id, currentUser.id, body.content);
+    send(req, res, 201, commentRes);
     return;
   }
 
   if (url.pathname === '/api/events' && req.method === 'GET') {
-    send(res, 200, { events: db.listEvents() });
+    const events = await db.listEvents();
+    send(req, res, 200, { events });
     return;
   }
 
   if (url.pathname === '/api/events' && req.method === 'POST') {
-    const currentUser = requireUser(req);
+    const currentUser = await requireUser(req);
     if (!currentUser) {
-      send(res, 401, { error: 'Authentication required' });
+      send(req, res, 401, { error: 'Authentication required' });
       return;
     }
     if (!['club_admin', 'Admin'].includes(currentUser.role)) {
-      send(res, 403, { error: 'Only club admins can create events' });
+      send(req, res, 403, { error: 'Only club admins can create events' });
       return;
     }
 
     const body = await parseBody(req);
     if (!body.title || !body.date || !body.venue) {
-      send(res, 400, { error: 'title, date, and venue are required' });
+      send(req, res, 400, { error: 'title, date, and venue are required' });
       return;
     }
 
-    const event = db.createEvent({
+    const event = await db.createEvent({
       title: body.title,
       description: body.description || '',
       category: body.category || 'General',
@@ -842,38 +860,38 @@ async function handleRoute(req, res) {
       points: body.points || 0,
       imageUrl: body.imageUrl,
     });
-    send(res, 201, { event });
+    send(req, res, 201, { event });
     return;
   }
 
   if (pathParts[0] === 'api' && pathParts[1] === 'events' && pathParts[2] && req.method === 'GET') {
-    const event = db.getEventById(pathParts[2]);
+    const event = await db.getEventById(pathParts[2]);
     if (!event) {
-      notFound(res);
+      notFound(req, res);
       return;
     }
-    send(res, 200, { event });
+    send(req, res, 200, { event });
     return;
   }
 
   if (pathParts[0] === 'api' && pathParts[1] === 'events' && pathParts[3] === 'register' && req.method === 'POST') {
-    const currentUser = requireUser(req);
+    const currentUser = await requireUser(req);
     if (!currentUser) {
-      send(res, 401, { error: 'Authentication required' });
+      send(req, res, 401, { error: 'Authentication required' });
       return;
     }
 
-    const result = db.registerForEvent(pathParts[2], currentUser.id);
+    const result = await db.registerForEvent(pathParts[2], currentUser.id);
     if (result.error === 'not-found') {
-      notFound(res);
+      notFound(req, res);
       return;
     }
     if (result.error === 'full') {
-      send(res, 409, { error: 'Event capacity is full' });
+      send(req, res, 409, { error: 'Event capacity is full' });
       return;
     }
 
-    send(res, 200, {
+    send(req, res, 200, {
       event: result.event,
       user: db.publicUser(result.user),
     });
@@ -881,111 +899,115 @@ async function handleRoute(req, res) {
   }
 
   if (url.pathname === '/api/leaderboard' && req.method === 'GET') {
-    send(res, 200, { users: db.listLeaderboard() });
+    const users = await db.listLeaderboard();
+    send(req, res, 200, { users });
     return;
   }
 
   if (pathParts[0] === 'api' && pathParts[1] === 'conversations' && pathParts[2] && req.method === 'GET') {
-    const currentUser = requireUser(req);
+    const currentUser = await requireUser(req);
     if (!currentUser) {
-      send(res, 401, { error: 'Authentication required' });
+      send(req, res, 401, { error: 'Authentication required' });
       return;
     }
-    const otherUser = db.getUserById(pathParts[2]);
+    const otherUser = await db.getUserById(pathParts[2]);
     if (!otherUser || otherUser.blockedAt) {
-      notFound(res);
+      notFound(req, res);
       return;
     }
 
-    send(res, 200, { conversation: db.getOrCreateConversation(currentUser.id, pathParts[2]) });
+    const conversation = await db.getOrCreateConversation(currentUser.id, pathParts[2]);
+    send(req, res, 200, { conversation });
     return;
   }
 
   if (pathParts[0] === 'api' && pathParts[1] === 'conversations' && pathParts[3] === 'messages' && req.method === 'POST') {
-    const currentUser = requireUser(req);
+    const currentUser = await requireUser(req);
     if (!currentUser) {
-      send(res, 401, { error: 'Authentication required' });
+      send(req, res, 401, { error: 'Authentication required' });
       return;
     }
 
-    const conversation = db.getConversation(pathParts[2]);
+    const conversation = await db.getConversation(pathParts[2]);
     if (!conversation || !conversation.participantIds.includes(currentUser.id)) {
-      notFound(res);
+      notFound(req, res);
       return;
     }
 
     const body = await parseBody(req);
     if (!body.content) {
-      send(res, 400, { error: 'content is required' });
+      send(req, res, 400, { error: 'content is required' });
       return;
     }
 
-    send(res, 201, db.addConversationMessage(conversation.id, currentUser.id, body.content));
+    const msgRes = await db.addConversationMessage(conversation.id, currentUser.id, body.content);
+    send(req, res, 201, msgRes);
     return;
   }
 
   if (pathParts[0] === 'api' && pathParts[1] === 'chat' && pathParts[2] === 'channels' && pathParts[3] && pathParts[4] === 'messages' && req.method === 'GET') {
-    const currentUser = requireUser(req);
+    const currentUser = await requireUser(req);
     if (!currentUser) {
-      send(res, 401, { error: 'Authentication required' });
+      send(req, res, 401, { error: 'Authentication required' });
       return;
     }
 
-    const messages = db.listChannelMessages(pathParts[3]);
+    const messages = await db.listChannelMessages(pathParts[3]);
     if (!messages) {
-      notFound(res);
+      notFound(req, res);
       return;
     }
-    send(res, 200, { messages });
+    send(req, res, 200, { messages });
     return;
   }
 
   if (pathParts[0] === 'api' && pathParts[1] === 'chat' && pathParts[2] === 'channels' && pathParts[3] && pathParts[4] === 'messages' && req.method === 'POST') {
-    const currentUser = requireUser(req);
+    const currentUser = await requireUser(req);
     if (!currentUser) {
-      send(res, 401, { error: 'Authentication required' });
+      send(req, res, 401, { error: 'Authentication required' });
       return;
     }
 
     const body = await parseBody(req);
-    const result = db.addChannelMessage(pathParts[3], currentUser.id, body.content);
+    const result = await db.addChannelMessage(pathParts[3], currentUser.id, body.content);
     if (result.error === 'not-found') {
-      notFound(res);
+      notFound(req, res);
       return;
     }
     if (result.error === 'content-required') {
-      send(res, 400, { error: 'content is required' });
+      send(req, res, 400, { error: 'content is required' });
       return;
     }
-    send(res, 201, result);
+    send(req, res, 201, result);
     return;
   }
 
   if (url.pathname === '/api/assistant/message' && req.method === 'POST') {
-    const currentUser = requireUser(req);
+    const currentUser = await requireUser(req);
     if (!currentUser) {
-      send(res, 401, { error: 'Authentication required' });
+      send(req, res, 401, { error: 'Authentication required' });
       return;
     }
 
     const body = await parseBody(req);
-    send(res, 200, {
+    const replyText = await campusAssistantReply(body.message, currentUser);
+    send(req, res, 200, {
       reply: {
         id: `assistant-${Date.now()}`,
         sender: 'assistant',
-        content: campusAssistantReply(body.message, currentUser),
+        content: replyText,
         createdAt: new Date().toISOString(),
       },
     });
     return;
   }
 
-  notFound(res);
+  notFound(req, res);
 }
 
 const server = createServer((req, res) => {
   handleRoute(req, res).catch((error) => {
-    send(res, error.message === 'Payload too large' ? 413 : 500, { error: error.message });
+    send(req, res, error.message === 'Payload too large' ? 413 : 500, { error: error.message });
   });
 });
 

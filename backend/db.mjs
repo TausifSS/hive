@@ -3,7 +3,9 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import pg from 'pg';
 
+const { Pool } = pg;
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function loadLocalEnv() {
@@ -35,7 +37,7 @@ const DATA_DIR = join(__dirname, 'data');
 const DB_FILE = process.env.DATABASE_URL || join(DATA_DIR, 'hive.db');
 const SESSION_TTL_DAYS = Number(process.env.SESSION_TTL_DAYS || 7);
 const OTP_TTL_MINUTES = Number(process.env.OTP_TTL_MINUTES || 10);
-const COLLEGE_EMAIL_DOMAINS = (process.env.COLLEGE_EMAIL_DOMAINS || process.env.COLLEGE_EMAIL_DOMAIN || 'raisoni.net,raisoni.edu,highschool.net,.edu,ghrcem.edu')
+const COLLEGE_EMAIL_DOMAINS = (process.env.COLLEGE_EMAIL_DOMAINS || process.env.COLLEGE_EMAIL_DOMAIN || 'raisoni.net,.edu,ghrcem.edu')
   .split(',')
   .map((domain) => domain.trim().toLowerCase())
   .filter(Boolean);
@@ -46,9 +48,64 @@ const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '')
 
 mkdirSync(DATA_DIR, { recursive: true });
 
-const database = new DatabaseSync(DB_FILE);
-database.exec('PRAGMA foreign_keys = ON;');
-database.exec('PRAGMA journal_mode = WAL;');
+const isPostgres = DB_FILE.startsWith('postgres://') || DB_FILE.startsWith('postgresql://');
+let pgPool = null;
+let sqliteDb = null;
+
+if (isPostgres) {
+  pgPool = new Pool({
+    connectionString: DB_FILE,
+    ssl: { rejectUnauthorized: false },
+  });
+} else {
+  sqliteDb = new DatabaseSync(DB_FILE);
+  sqliteDb.exec('PRAGMA foreign_keys = ON;');
+  sqliteDb.exec('PRAGMA journal_mode = WAL;');
+}
+
+function translateSql(sql) {
+  let index = 1;
+  return sql.replace(/\?/g, () => `$${index++}`);
+}
+
+async function dbQueryGet(sql, params = []) {
+  if (isPostgres) {
+    const pgSql = translateSql(sql);
+    const res = await pgPool.query(pgSql, params);
+    return res.rows[0] || null;
+  } else {
+    return sqliteDb.prepare(sql).get(...params) || null;
+  }
+}
+
+async function dbQueryAll(sql, params = []) {
+  if (isPostgres) {
+    const pgSql = translateSql(sql);
+    const res = await pgPool.query(pgSql, params);
+    return res.rows;
+  } else {
+    return sqliteDb.prepare(sql).all(...params);
+  }
+}
+
+async function dbQueryRun(sql, params = []) {
+  if (isPostgres) {
+    const pgSql = translateSql(sql);
+    const res = await pgPool.query(pgSql, params);
+    return { changes: res.rowCount };
+  } else {
+    const result = sqliteDb.prepare(sql).run(...params);
+    return { changes: result.changes };
+  }
+}
+
+async function dbQueryExec(sql) {
+  if (isPostgres) {
+    await pgPool.query(sql);
+  } else {
+    sqliteDb.exec(sql);
+  }
+}
 
 function hashPassword(password) {
   const salt = randomBytes(16).toString('hex');
@@ -93,103 +150,95 @@ function isCollegeEmail(email) {
   return ADMIN_EMAILS.includes(normalized) || COLLEGE_EMAIL_DOMAINS.some((domain) => matchesEmailDomain(normalized, domain));
 }
 
-function userCount() {
-  return database.prepare('SELECT COUNT(*) AS count FROM users').get().count;
+async function userCount() {
+  const row = await dbQueryGet('SELECT COUNT(*) AS count FROM users');
+  return Number(row?.count || 0);
 }
 
-function createSession(userId) {
+async function createSession(userId) {
   const token = randomBytes(32).toString('base64url');
   const now = new Date();
   const expiresAt = new Date(now.getTime() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
-  database.prepare(`
+  await dbQueryRun(`
     INSERT INTO auth_sessions (id, user_id, token_hash, created_at, expires_at)
     VALUES (?, ?, ?, ?, ?)
-  `).run(randomUUID(), userId, hashToken(token), now.toISOString(), expiresAt);
+  `, [randomUUID(), userId, hashToken(token), now.toISOString(), expiresAt]);
 
   return { token, expiresAt };
 }
 
-function getUserBySessionToken(token) {
+async function getUserBySessionToken(token) {
   if (!token) return null;
 
-  const session = database
-    .prepare(`
-      SELECT * FROM auth_sessions
-      WHERE token_hash = ? AND revoked_at IS NULL
-    `)
-    .get(hashToken(token));
+  const session = await dbQueryGet(`
+    SELECT * FROM auth_sessions
+    WHERE token_hash = ? AND revoked_at IS NULL
+  `, [hashToken(token)]);
 
   if (!session || new Date(session.expires_at).getTime() <= Date.now()) {
     return null;
   }
 
-  const user = getUserById(session.user_id);
+  const user = await getUserById(session.user_id);
   return user?.blockedAt ? null : user;
 }
 
-function revokeSession(token) {
+async function revokeSession(token) {
   if (!token) return;
 
-  database
-    .prepare('UPDATE auth_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL')
-    .run(new Date().toISOString(), hashToken(token));
+  await dbQueryRun('UPDATE auth_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL', [
+    new Date().toISOString(),
+    hashToken(token)
+  ]);
 }
 
-function createLoginOtp(email) {
+async function createLoginOtp(email) {
   const normalizedEmail = normalizeEmail(email);
   const otp = String(Math.floor(100000 + Math.random() * 900000));
   const now = new Date();
   const expiresAt = new Date(now.getTime() + OTP_TTL_MINUTES * 60 * 1000).toISOString();
 
-  database
-    .prepare(`
-      UPDATE auth_otps
-      SET consumed_at = ?
-      WHERE email = ? AND purpose = 'login' AND consumed_at IS NULL
-    `)
-    .run(now.toISOString(), normalizedEmail);
-  database
-    .prepare(`
-      INSERT INTO auth_otps (id, email, otp_hash, purpose, attempts, created_at, expires_at, consumed_at)
-      VALUES (?, ?, ?, 'login', 0, ?, ?, NULL)
-    `)
-    .run(randomUUID(), normalizedEmail, hashToken(`${normalizedEmail}:${otp}`), now.toISOString(), expiresAt);
+  await dbQueryRun(`
+    UPDATE auth_otps
+    SET consumed_at = ?
+    WHERE email = ? AND purpose = 'login' AND consumed_at IS NULL
+  `, [now.toISOString(), normalizedEmail]);
+
+  await dbQueryRun(`
+    INSERT INTO auth_otps (id, email, otp_hash, purpose, attempts, created_at, expires_at, consumed_at)
+    VALUES (?, ?, ?, 'login', 0, ?, ?, NULL)
+  `, [randomUUID(), normalizedEmail, hashToken(`${normalizedEmail}:${otp}`), now.toISOString(), expiresAt]);
 
   return { otp, expiresAt };
 }
 
-function verifyLoginOtp(email, otp) {
+async function verifyLoginOtp(email, otp) {
   const normalizedEmail = normalizeEmail(email);
-  const record = database
-    .prepare(`
-      SELECT * FROM auth_otps
-      WHERE email = ? AND purpose = 'login' AND consumed_at IS NULL
-      ORDER BY datetime(created_at) DESC
-      LIMIT 1
-    `)
-    .get(normalizedEmail);
+  const record = await dbQueryGet(`
+    SELECT * FROM auth_otps
+    WHERE email = ? AND purpose = 'login' AND consumed_at IS NULL
+    ORDER BY created_at DESC
+    LIMIT 1
+  `, [normalizedEmail]);
 
   if (!record) return { ok: false, error: 'OTP not requested or already used' };
   if (new Date(record.expires_at).getTime() <= Date.now()) return { ok: false, error: 'OTP expired' };
   if (record.attempts >= 5) return { ok: false, error: 'Too many OTP attempts' };
 
   const isValid = record.otp_hash === hashToken(`${normalizedEmail}:${String(otp || '').trim()}`);
-  database.prepare('UPDATE auth_otps SET attempts = attempts + 1 WHERE id = ?').run(record.id);
+  await dbQueryRun('UPDATE auth_otps SET attempts = attempts + 1 WHERE id = ?', [record.id]);
 
   if (!isValid) return { ok: false, error: 'Invalid OTP' };
 
-  database.prepare('UPDATE auth_otps SET consumed_at = ? WHERE id = ?').run(new Date().toISOString(), record.id);
+  await dbQueryRun('UPDATE auth_otps SET consumed_at = ? WHERE id = ?', [new Date().toISOString(), record.id]);
   return { ok: true };
 }
 
-function deleteExpiredSessions() {
-  database
-    .prepare('DELETE FROM auth_sessions WHERE expires_at <= ? OR revoked_at IS NOT NULL')
-    .run(new Date().toISOString());
-  database
-    .prepare('DELETE FROM auth_otps WHERE expires_at <= ? OR consumed_at IS NOT NULL')
-    .run(new Date().toISOString());
+async function deleteExpiredSessions() {
+  const now = new Date().toISOString();
+  await dbQueryRun('DELETE FROM auth_sessions WHERE expires_at <= ? OR revoked_at IS NOT NULL', [now]);
+  await dbQueryRun('DELETE FROM auth_otps WHERE expires_at <= ? OR consumed_at IS NOT NULL', [now]);
 }
 
 function camelUser(row) {
@@ -223,27 +272,22 @@ function publicClubApplication(application) {
   return safeApplication;
 }
 
-function userWithConnections(user) {
+async function userWithConnections(user) {
   if (!user) return null;
 
-  const followers = database
-    .prepare('SELECT follower_id FROM follows WHERE following_id = ? ORDER BY created_at DESC')
-    .all(user.id)
-    .map((row) => row.follower_id);
-  const following = database
-    .prepare('SELECT following_id FROM follows WHERE follower_id = ? ORDER BY created_at DESC')
-    .all(user.id)
-    .map((row) => row.following_id);
+  const followersRows = await dbQueryAll('SELECT follower_id FROM follows WHERE following_id = ? ORDER BY created_at DESC', [user.id]);
+  const followers = followersRows.map((row) => row.follower_id);
+
+  const followingRows = await dbQueryAll('SELECT following_id FROM follows WHERE follower_id = ? ORDER BY created_at DESC', [user.id]);
+  const following = followingRows.map((row) => row.following_id);
 
   return { ...user, followers, following };
 }
 
-function camelEvent(row) {
+async function camelEvent(row) {
   if (!row) return null;
-  const registeredUserIds = database
-    .prepare('SELECT user_id FROM event_registrations WHERE event_id = ? ORDER BY created_at ASC')
-    .all(row.id)
-    .map((registration) => registration.user_id);
+  const registrations = await dbQueryAll('SELECT user_id FROM event_registrations WHERE event_id = ? ORDER BY created_at ASC', [row.id]);
+  const registeredUserIds = registrations.map((registration) => registration.user_id);
 
   return {
     id: row.id,
@@ -280,38 +324,40 @@ function camelPost(row) {
   };
 }
 
-function getUserById(id) {
-  const row = database.prepare('SELECT * FROM users WHERE id = ?').get(id);
-  return userWithConnections(camelUser(row));
+async function getUserById(id) {
+  const row = await dbQueryGet('SELECT * FROM users WHERE id = ?', [id]);
+  return await userWithConnections(camelUser(row));
 }
 
-function getUserByIdOrHandle(idOrHandle) {
-  const row = database.prepare('SELECT * FROM users WHERE id = ? OR handle = ?').get(idOrHandle, idOrHandle);
-  return userWithConnections(camelUser(row));
+async function getUserByIdOrHandle(idOrHandle) {
+  const row = await dbQueryGet('SELECT * FROM users WHERE id = ? OR handle = ?', [idOrHandle, idOrHandle]);
+  return await userWithConnections(camelUser(row));
 }
 
-function getUserByEmail(email) {
-  const row = database.prepare('SELECT * FROM users WHERE email = ?').get(normalizeEmail(email));
-  return userWithConnections(camelUser(row));
+async function getUserByEmail(email) {
+  const row = await dbQueryGet('SELECT * FROM users WHERE email = ?', [normalizeEmail(email)]);
+  return await userWithConnections(camelUser(row));
 }
 
-function listUsers() {
-  return database
-    .prepare('SELECT * FROM users ORDER BY points DESC, name ASC')
-    .all()
-    .map((row) => userWithConnections(camelUser(row)));
+async function listUsers() {
+  const rows = await dbQueryAll('SELECT * FROM users ORDER BY points DESC, name ASC');
+  const results = [];
+  for (const row of rows) {
+    results.push(await userWithConnections(camelUser(row)));
+  }
+  return results;
 }
 
-function createUser({ id, name, email, password, passwordHash, role = 'student' }) {
+async function createUser({ id, name, email, password, passwordHash, role = 'student' }) {
   const normalizedEmail = normalizeEmail(email);
-  const userId = id || createAvailableUserId(normalizedEmail);
+  const userId = id || (await createAvailableUserId(normalizedEmail));
   const initials = encodeURIComponent(name.slice(0, 2).toUpperCase());
 
-  database.prepare(`
+  await dbQueryRun(`
     INSERT INTO users (
       id, name, email, password_hash, role, handle, bio, avatar_url, cover_url, points, created_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
+  `, [
     userId,
     name,
     normalizedEmail,
@@ -323,30 +369,28 @@ function createUser({ id, name, email, password, passwordHash, role = 'student' 
     'https://placehold.co/600x200/374151/E5E7EB?text=Cover+Photo',
     0,
     new Date().toISOString(),
-  );
+  ]);
 
-  return getUserById(userId);
+  return await getUserById(userId);
 }
 
-function setUserPassword(userId, password) {
-  database.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password), userId);
-  return getUserById(userId);
+async function setUserPassword(userId, password) {
+  await dbQueryRun('UPDATE users SET password_hash = ? WHERE id = ?', [hashPassword(password), userId]);
+  return await getUserById(userId);
 }
 
-function getFirstAdmin() {
-  const row = database
-    .prepare("SELECT * FROM users WHERE role = 'Admin' ORDER BY datetime(created_at) ASC LIMIT 1")
-    .get();
-  return userWithConnections(camelUser(row));
+async function getFirstAdmin() {
+  const row = await dbQueryGet("SELECT * FROM users WHERE role = 'Admin' ORDER BY created_at ASC LIMIT 1");
+  return await userWithConnections(camelUser(row));
 }
 
-function createAvailableUserId(email) {
+async function createAvailableUserId(email) {
   const domainPart = emailDomain(email).split('.')[0] || 'user';
   const base = email.split('@')[0].replace(/[^a-z0-9]/gi, '').toLowerCase() || domainPart || 'user';
   let candidate = base;
   let suffix = 1;
 
-  while (getUserById(candidate)) {
+  while (await getUserById(candidate)) {
     suffix += 1;
     candidate = `${base}${suffix}`;
   }
@@ -354,44 +398,54 @@ function createAvailableUserId(email) {
   return candidate;
 }
 
-function followUser(followerId, followingId) {
-  database
-    .prepare('INSERT OR IGNORE INTO follows (follower_id, following_id, created_at) VALUES (?, ?, ?)')
-    .run(followerId, followingId, new Date().toISOString());
+async function followUser(followerId, followingId) {
+  await dbQueryRun('INSERT INTO follows (follower_id, following_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING', [
+    followerId,
+    followingId,
+    new Date().toISOString()
+  ]);
 
   return {
-    user: getUserById(followingId),
-    currentUser: getUserById(followerId),
+    user: await getUserById(followingId),
+    currentUser: await getUserById(followerId),
   };
 }
 
-function resolveRoleForNewUser() {
+async function resolveRoleForNewUser(email) {
+  const normalizedEmail = normalizeEmail(email);
+  if (ADMIN_EMAILS.includes(normalizedEmail) || (await userCount()) === 0) {
+    return 'Admin';
+  }
+  if (matchesEmailDomain(normalizedEmail, '.edu')) {
+    return 'club_admin';
+  }
   return 'student';
 }
 
-function getOrCreateOtpUser({ email, name }) {
+async function getOrCreateOtpUser({ email, name }) {
   const normalizedEmail = normalizeEmail(email);
-  const existingUser = getUserByEmail(normalizedEmail);
+  const existingUser = await getUserByEmail(normalizedEmail);
 
   if (existingUser) return existingUser;
 
-  return createUser({
+  const role = await resolveRoleForNewUser(normalizedEmail);
+  return await createUser({
     name: name || normalizedEmail.split('@')[0],
     email: normalizedEmail,
     password: randomBytes(24).toString('base64url'),
-    role: resolveRoleForNewUser(normalizedEmail),
+    role,
   });
 }
 
-function getOrCreateStudentWithPassword({ email, name, password }) {
+async function getOrCreateStudentWithPassword({ email, name, password }) {
   const normalizedEmail = normalizeEmail(email);
-  const existingUser = getUserByEmail(normalizedEmail);
+  const existingUser = await getUserByEmail(normalizedEmail);
 
   if (existingUser) {
-    return setUserPassword(existingUser.id, password);
+    return await setUserPassword(existingUser.id, password);
   }
 
-  return createUser({
+  return await createUser({
     name: name || normalizedEmail.split('@')[0],
     email: normalizedEmail,
     password,
@@ -416,32 +470,31 @@ function camelClubApplication(row) {
   };
 }
 
-function getClubApplicationByEmail(email) {
-  const row = database
-    .prepare('SELECT * FROM club_applications WHERE official_email = ?')
-    .get(normalizeEmail(email));
+async function getClubApplicationByEmail(email) {
+  const row = await dbQueryGet('SELECT * FROM club_applications WHERE official_email = ?', [normalizeEmail(email)]);
   return camelClubApplication(row);
 }
 
-function getClubApplicationById(id) {
-  const row = database.prepare('SELECT * FROM club_applications WHERE id = ?').get(id);
+async function getClubApplicationById(id) {
+  const row = await dbQueryGet('SELECT * FROM club_applications WHERE id = ?', [id]);
   return camelClubApplication(row);
 }
 
-function listClubApplications() {
-  return database
-    .prepare("SELECT * FROM club_applications ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END, datetime(submitted_at) DESC")
-    .all()
-    .map(camelClubApplication);
+async function listClubApplications() {
+  const rows = await dbQueryAll(`
+    SELECT * FROM club_applications
+    ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END, submitted_at DESC
+  `);
+  return rows.map(camelClubApplication);
 }
 
-function upsertClubApplication({ clubName, officialEmail, password, certificateName, certificateData }) {
+async function upsertClubApplication({ clubName, officialEmail, password, certificateName, certificateData }) {
   const normalizedEmail = normalizeEmail(officialEmail);
-  const existingApplication = getClubApplicationByEmail(normalizedEmail);
+  const existingApplication = await getClubApplicationByEmail(normalizedEmail);
   const now = new Date().toISOString();
   const id = existingApplication?.id || randomUUID();
 
-  database.prepare(`
+  await dbQueryRun(`
     INSERT INTO club_applications (
       id, club_name, official_email, password_hash, certificate_name,
       certificate_data, status, submitted_at, reviewed_at, reviewed_by, note
@@ -456,7 +509,7 @@ function upsertClubApplication({ clubName, officialEmail, password, certificateN
       reviewed_at = NULL,
       reviewed_by = NULL,
       note = ''
-  `).run(
+  `, [
     id,
     clubName,
     normalizedEmail,
@@ -464,28 +517,35 @@ function upsertClubApplication({ clubName, officialEmail, password, certificateN
     certificateName,
     certificateData,
     now,
-  );
+  ]);
 
-  return getClubApplicationByEmail(normalizedEmail);
+  return await getClubApplicationByEmail(normalizedEmail);
 }
 
-function reviewClubApplication(applicationId, status, reviewerId, note = '') {
-  const application = getClubApplicationById(applicationId);
+async function reviewClubApplication(applicationId, status, reviewerId, note = '') {
+  const application = await getClubApplicationById(applicationId);
   if (!application) return null;
 
   const reviewedAt = new Date().toISOString();
-  database
-    .prepare('UPDATE club_applications SET status = ?, reviewed_at = ?, reviewed_by = ?, note = ? WHERE id = ?')
-    .run(status, reviewedAt, reviewerId, note, applicationId);
+  await dbQueryRun('UPDATE club_applications SET status = ?, reviewed_at = ?, reviewed_by = ?, note = ? WHERE id = ?', [
+    status,
+    reviewedAt,
+    reviewerId,
+    note,
+    applicationId
+  ]);
 
   if (status === 'approved') {
-    const existingUser = getUserByEmail(application.officialEmail);
+    const existingUser = await getUserByEmail(application.officialEmail);
     if (existingUser) {
-      database
-        .prepare('UPDATE users SET role = ?, password_hash = ?, name = ? WHERE id = ?')
-        .run('club_admin', application.passwordHash, application.clubName, existingUser.id);
+      await dbQueryRun('UPDATE users SET role = ?, password_hash = ?, name = ? WHERE id = ?', [
+        'club_admin',
+        application.passwordHash,
+        application.clubName,
+        existingUser.id
+      ]);
     } else {
-      createUser({
+      await createUser({
         name: application.clubName,
         email: application.officialEmail,
         passwordHash: application.passwordHash,
@@ -494,11 +554,11 @@ function reviewClubApplication(applicationId, status, reviewerId, note = '') {
     }
   }
 
-  return getClubApplicationById(applicationId);
+  return await getClubApplicationById(applicationId);
 }
 
-function updateUserProfile(userId, fields) {
-  const currentUser = getUserById(userId);
+async function updateUserProfile(userId, fields) {
+  const currentUser = await getUserById(userId);
   if (!currentUser) return null;
 
   const name = String(fields.name || currentUser.name).trim().slice(0, 80);
@@ -508,59 +568,61 @@ function updateUserProfile(userId, fields) {
 
   if (!name) return { error: 'name-required' };
 
-  database.prepare(`
+  await dbQueryRun(`
     UPDATE users
     SET name = ?, bio = ?, avatar_url = ?, cover_url = ?
     WHERE id = ?
-  `).run(name, bio, avatarUrl, coverUrl, userId);
+  `, [name, bio, avatarUrl, coverUrl, userId]);
 
-  return getUserById(userId);
+  return await getUserById(userId);
 }
 
-function updateUserRole(userId, role) {
-  database.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, userId);
-  return getUserById(userId);
+async function updateUserRole(userId, role) {
+  await dbQueryRun('UPDATE users SET role = ? WHERE id = ?', [role, userId]);
+  return await getUserById(userId);
 }
 
-function setUserBlocked(userId, blocked) {
-  database
-    .prepare('UPDATE users SET blocked_at = ? WHERE id = ?')
-    .run(blocked ? new Date().toISOString() : null, userId);
+async function setUserBlocked(userId, blocked) {
+  await dbQueryRun('UPDATE users SET blocked_at = ? WHERE id = ?', [blocked ? new Date().toISOString() : null, userId]);
   if (blocked) {
-    database
-      .prepare('UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL')
-      .run(new Date().toISOString(), userId);
+    await dbQueryRun('UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL', [
+      new Date().toISOString(),
+      userId
+    ]);
   }
-  return getUserById(userId);
+  return await getUserById(userId);
 }
 
-function deleteUser(userId) {
-  database.prepare('DELETE FROM users WHERE id = ?').run(userId);
+async function deleteUser(userId) {
+  await dbQueryRun('DELETE FROM users WHERE id = ?', [userId]);
 }
 
-function getPostById(postId) {
-  const post = camelPost(database.prepare('SELECT * FROM posts WHERE id = ?').get(postId));
-  if (!post) return null;
+async function getPostById(postId) {
+  const postRow = await dbQueryGet('SELECT * FROM posts WHERE id = ?', [postId]);
+  if (!postRow) return null;
 
-  post.author = publicUser(getUserById(post.authorId));
-  post.likes = database
-    .prepare('SELECT user_id FROM post_likes WHERE post_id = ? ORDER BY created_at ASC')
-    .all(post.id)
-    .map((row) => row.user_id);
-  post.savedBy = database
-    .prepare('SELECT user_id FROM saved_posts WHERE post_id = ? ORDER BY created_at ASC')
-    .all(post.id)
-    .map((row) => row.user_id);
-  post.comments = database
-    .prepare('SELECT * FROM post_comments WHERE post_id = ? ORDER BY created_at ASC')
-    .all(post.id)
-    .map((comment) => ({
+  const post = camelPost(postRow);
+  post.author = publicUser(await getUserById(post.authorId));
+
+  const likesRows = await dbQueryAll('SELECT user_id FROM post_likes WHERE post_id = ? ORDER BY created_at ASC', [post.id]);
+  post.likes = likesRows.map((row) => row.user_id);
+
+  const savedRows = await dbQueryAll('SELECT user_id FROM saved_posts WHERE post_id = ? ORDER BY created_at ASC', [post.id]);
+  post.savedBy = savedRows.map((row) => row.user_id);
+
+  const commentsRows = await dbQueryAll('SELECT * FROM post_comments WHERE post_id = ? ORDER BY created_at ASC', [post.id]);
+  const comments = [];
+  for (const comment of commentsRows) {
+    comments.push({
       id: comment.id,
       authorId: comment.author_id,
       content: comment.content,
       createdAt: comment.created_at,
-      author: publicUser(getUserById(comment.author_id)),
-    }));
+      author: publicUser(await getUserById(comment.author_id)),
+    });
+  }
+
+  post.comments = comments;
   post.likesCount = post.likes.length;
   post.savedCount = post.savedBy.length;
   post.commentsCount = post.comments.length;
@@ -568,61 +630,71 @@ function getPostById(postId) {
   return post;
 }
 
-function listPosts() {
-  return database
-    .prepare('SELECT * FROM posts ORDER BY datetime(created_at) DESC')
-    .all()
-    .map((row) => getPostById(row.id));
+async function listPosts() {
+  const rows = await dbQueryAll('SELECT * FROM posts ORDER BY created_at DESC');
+  const results = [];
+  for (const row of rows) {
+    results.push(await getPostById(row.id));
+  }
+  return results;
 }
 
-function createPost({ authorId, content, mediaUrl = '' }) {
+async function createPost({ authorId, content, mediaUrl = '' }) {
   const id = randomUUID();
-  database
-    .prepare('INSERT INTO posts (id, author_id, content, media_url, created_at) VALUES (?, ?, ?, ?, ?)')
-    .run(id, authorId, content, mediaUrl, new Date().toISOString());
-  return getPostById(id);
+  await dbQueryRun('INSERT INTO posts (id, author_id, content, media_url, created_at) VALUES (?, ?, ?, ?, ?)', [
+    id,
+    authorId,
+    content,
+    mediaUrl,
+    new Date().toISOString()
+  ]);
+  return await getPostById(id);
 }
 
-function togglePostLike(postId, userId) {
-  const existing = database
-    .prepare('SELECT 1 FROM post_likes WHERE post_id = ? AND user_id = ?')
-    .get(postId, userId);
+async function togglePostLike(postId, userId) {
+  const existing = await dbQueryGet('SELECT 1 FROM post_likes WHERE post_id = ? AND user_id = ?', [postId, userId]);
 
   if (existing) {
-    database.prepare('DELETE FROM post_likes WHERE post_id = ? AND user_id = ?').run(postId, userId);
+    await dbQueryRun('DELETE FROM post_likes WHERE post_id = ? AND user_id = ?', [postId, userId]);
   } else {
-    database
-      .prepare('INSERT INTO post_likes (post_id, user_id, created_at) VALUES (?, ?, ?)')
-      .run(postId, userId, new Date().toISOString());
+    await dbQueryRun('INSERT INTO post_likes (post_id, user_id, created_at) VALUES (?, ?, ?)', [
+      postId,
+      userId,
+      new Date().toISOString()
+    ]);
   }
 
-  return getPostById(postId);
+  return await getPostById(postId);
 }
 
-function togglePostSave(postId, userId) {
-  const existing = database
-    .prepare('SELECT 1 FROM saved_posts WHERE post_id = ? AND user_id = ?')
-    .get(postId, userId);
+async function togglePostSave(postId, userId) {
+  const existing = await dbQueryGet('SELECT 1 FROM saved_posts WHERE post_id = ? AND user_id = ?', [postId, userId]);
 
   if (existing) {
-    database.prepare('DELETE FROM saved_posts WHERE post_id = ? AND user_id = ?').run(postId, userId);
+    await dbQueryRun('DELETE FROM saved_posts WHERE post_id = ? AND user_id = ?', [postId, userId]);
   } else {
-    database
-      .prepare('INSERT INTO saved_posts (post_id, user_id, created_at) VALUES (?, ?, ?)')
-      .run(postId, userId, new Date().toISOString());
+    await dbQueryRun('INSERT INTO saved_posts (post_id, user_id, created_at) VALUES (?, ?, ?)', [
+      postId,
+      userId,
+      new Date().toISOString()
+    ]);
   }
 
-  return getPostById(postId);
+  return await getPostById(postId);
 }
 
-function addPostComment(postId, authorId, content) {
+async function addPostComment(postId, authorId, content) {
   const id = randomUUID();
-  database
-    .prepare('INSERT INTO post_comments (id, post_id, author_id, content, created_at) VALUES (?, ?, ?, ?, ?)')
-    .run(id, postId, authorId, content, new Date().toISOString());
+  await dbQueryRun('INSERT INTO post_comments (id, post_id, author_id, content, created_at) VALUES (?, ?, ?, ?, ?)', [
+    id,
+    postId,
+    authorId,
+    content,
+    new Date().toISOString()
+  ]);
 
   return {
-    post: getPostById(postId),
+    post: await getPostById(postId),
     comment: {
       id,
       authorId,
@@ -632,21 +704,25 @@ function addPostComment(postId, authorId, content) {
   };
 }
 
-function getEventById(eventId) {
-  const event = camelEvent(database.prepare('SELECT * FROM events WHERE id = ?').get(eventId));
-  if (!event) return null;
-  event.organizerUser = publicUser(getUserById(event.organizerId));
+async function getEventById(eventId) {
+  const row = await dbQueryGet('SELECT * FROM events WHERE id = ?', [eventId]);
+  if (!row) return null;
+
+  const event = await camelEvent(row);
+  event.organizerUser = publicUser(await getUserById(event.organizerId));
   return event;
 }
 
-function listEvents() {
-  return database
-    .prepare('SELECT * FROM events ORDER BY datetime(date) ASC')
-    .all()
-    .map((row) => getEventById(row.id));
+async function listEvents() {
+  const rows = await dbQueryAll('SELECT * FROM events ORDER BY date ASC');
+  const results = [];
+  for (const row of rows) {
+    results.push(await getEventById(row.id));
+  }
+  return results;
 }
 
-function createEvent({
+async function createEvent({
   title,
   description = '',
   category = 'General',
@@ -659,12 +735,12 @@ function createEvent({
   imageUrl = 'https://placehold.co/400x200/cccccc/ffffff?text=Event+Image',
 }) {
   const id = randomUUID();
-  database.prepare(`
+  await dbQueryRun(`
     INSERT INTO events (
       id, title, description, category, date, venue, organizer, organizer_id,
       capacity, points, image_url, created_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
+  `, [
     id,
     title,
     description,
@@ -677,35 +753,38 @@ function createEvent({
     Number(points),
     imageUrl,
     new Date().toISOString(),
-  );
+  ]);
 
-  return getEventById(id);
+  return await getEventById(id);
 }
 
-function registerForEvent(eventId, userId) {
-  const event = getEventById(eventId);
+async function registerForEvent(eventId, userId) {
+  const event = await getEventById(eventId);
   if (!event) return { error: 'not-found' };
   if (event.registeredCount >= event.capacity && !event.registeredUserIds.includes(userId)) {
     return { error: 'full' };
   }
 
   const alreadyRegistered = event.registeredUserIds.includes(userId);
-  database
-    .prepare('INSERT OR IGNORE INTO event_registrations (event_id, user_id, created_at) VALUES (?, ?, ?)')
-    .run(eventId, userId, new Date().toISOString());
+  await dbQueryRun('INSERT INTO event_registrations (event_id, user_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING', [
+    eventId,
+    userId,
+    new Date().toISOString()
+  ]);
 
   if (!alreadyRegistered) {
-    database.prepare('UPDATE users SET points = points + ? WHERE id = ?').run(event.points, userId);
+    await dbQueryRun('UPDATE users SET points = points + ? WHERE id = ?', [event.points, userId]);
   }
 
   return {
-    event: getEventById(eventId),
-    user: getUserById(userId),
+    event: await getEventById(eventId),
+    user: await getUserById(userId),
   };
 }
 
-function listLeaderboard() {
-  return listUsers().map((user, index) => ({
+async function listLeaderboard() {
+  const users = await listUsers();
+  return users.map((user, index) => ({
     rank: index + 1,
     ...publicUser(user),
   }));
@@ -715,23 +794,20 @@ function conversationIdFor(userA, userB) {
   return `chat-${[userA, userB].sort().join('-')}`;
 }
 
-function getConversation(conversationId) {
-  const conversation = database.prepare('SELECT * FROM conversations WHERE id = ?').get(conversationId);
+async function getConversation(conversationId) {
+  const conversation = await dbQueryGet('SELECT * FROM conversations WHERE id = ?', [conversationId]);
   if (!conversation) return null;
 
-  const participantIds = database
-    .prepare('SELECT user_id FROM conversation_participants WHERE conversation_id = ? ORDER BY user_id ASC')
-    .all(conversationId)
-    .map((row) => row.user_id);
-  const messages = database
-    .prepare('SELECT * FROM messages WHERE conversation_id = ? ORDER BY datetime(created_at) ASC')
-    .all(conversationId)
-    .map((message) => ({
-      id: message.id,
-      senderId: message.sender_id,
-      content: message.content,
-      createdAt: message.created_at,
-    }));
+  const participantsRows = await dbQueryAll('SELECT user_id FROM conversation_participants WHERE conversation_id = ? ORDER BY user_id ASC', [conversationId]);
+  const participantIds = participantsRows.map((row) => row.user_id);
+
+  const messagesRows = await dbQueryAll('SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC', [conversationId]);
+  const messages = messagesRows.map((message) => ({
+    id: message.id,
+    senderId: message.sender_id,
+    content: message.content,
+    createdAt: message.created_at,
+  }));
 
   return {
     id: conversation.id,
@@ -741,24 +817,20 @@ function getConversation(conversationId) {
   };
 }
 
-function getOrCreateConversation(userA, userB) {
+async function getOrCreateConversation(userA, userB) {
   const id = conversationIdFor(userA, userB);
-  const existing = getConversation(id);
+  const existing = await getConversation(id);
   if (existing) return existing;
 
   const now = new Date().toISOString();
-  database.prepare('INSERT INTO conversations (id, updated_at) VALUES (?, ?)').run(id, now);
-  database
-    .prepare('INSERT INTO conversation_participants (conversation_id, user_id) VALUES (?, ?)')
-    .run(id, userA);
-  database
-    .prepare('INSERT INTO conversation_participants (conversation_id, user_id) VALUES (?, ?)')
-    .run(id, userB);
+  await dbQueryRun('INSERT INTO conversations (id, updated_at) VALUES (?, ?)', [id, now]);
+  await dbQueryRun('INSERT INTO conversation_participants (conversation_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING', [id, userA]);
+  await dbQueryRun('INSERT INTO conversation_participants (conversation_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING', [id, userB]);
 
-  return getConversation(id);
+  return await getConversation(id);
 }
 
-function addConversationMessage(conversationId, senderId, content) {
+async function addConversationMessage(conversationId, senderId, content) {
   const message = {
     id: randomUUID(),
     senderId,
@@ -766,36 +838,42 @@ function addConversationMessage(conversationId, senderId, content) {
     createdAt: new Date().toISOString(),
   };
 
-  database
-    .prepare('INSERT INTO messages (id, conversation_id, sender_id, content, created_at) VALUES (?, ?, ?, ?, ?)')
-    .run(message.id, conversationId, senderId, content, message.createdAt);
-  database.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(message.createdAt, conversationId);
+  await dbQueryRun('INSERT INTO messages (id, conversation_id, sender_id, content, created_at) VALUES (?, ?, ?, ?, ?)', [
+    message.id,
+    conversationId,
+    senderId,
+    content,
+    message.createdAt
+  ]);
+  await dbQueryRun('UPDATE conversations SET updated_at = ? WHERE id = ?', [message.createdAt, conversationId]);
 
   return {
-    conversation: getConversation(conversationId),
+    conversation: await getConversation(conversationId),
     message,
   };
 }
 
 const CHAT_CHANNELS = new Set(['global', 'professional', 'placements']);
 
-function listChannelMessages(channelId) {
+async function listChannelMessages(channelId) {
   if (!CHAT_CHANNELS.has(channelId)) return null;
 
-  return database
-    .prepare('SELECT * FROM channel_messages WHERE channel_id = ? ORDER BY datetime(created_at) ASC')
-    .all(channelId)
-    .map((message) => ({
+  const rows = await dbQueryAll('SELECT * FROM channel_messages WHERE channel_id = ? ORDER BY created_at ASC', [channelId]);
+  const results = [];
+  for (const message of rows) {
+    results.push({
       id: message.id,
       channelId: message.channel_id,
       senderId: message.sender_id,
       content: message.content,
       createdAt: message.created_at,
-      author: publicUser(getUserById(message.sender_id)),
-    }));
+      author: publicUser(await getUserById(message.sender_id)),
+    });
+  }
+  return results;
 }
 
-function addChannelMessage(channelId, senderId, content) {
+async function addChannelMessage(channelId, senderId, content) {
   if (!CHAT_CHANNELS.has(channelId)) return { error: 'not-found' };
 
   const message = {
@@ -808,15 +886,19 @@ function addChannelMessage(channelId, senderId, content) {
 
   if (!message.content) return { error: 'content-required' };
 
-  database
-    .prepare('INSERT INTO channel_messages (id, channel_id, sender_id, content, created_at) VALUES (?, ?, ?, ?, ?)')
-    .run(message.id, channelId, senderId, message.content, message.createdAt);
+  await dbQueryRun('INSERT INTO channel_messages (id, channel_id, sender_id, content, created_at) VALUES (?, ?, ?, ?, ?)', [
+    message.id,
+    channelId,
+    senderId,
+    message.content,
+    message.createdAt
+  ]);
 
   return {
-    messages: listChannelMessages(channelId),
+    messages: await listChannelMessages(channelId),
     message: {
       ...message,
-      author: publicUser(getUserById(senderId)),
+      author: publicUser(await getUserById(senderId)),
     },
   };
 }
@@ -831,27 +913,40 @@ function camelStory(row) {
     category: row.category,
     authorId: row.author_id,
     createdAt: row.created_at,
-    author: row.author_id ? publicUser(getUserById(row.author_id)) : null,
+    author: null,
   };
 }
 
-function listTopStories() {
-  return database
-    .prepare('SELECT * FROM top_stories ORDER BY datetime(created_at) DESC')
-    .all()
-    .map(camelStory);
+async function listTopStories() {
+  const rows = await dbQueryAll('SELECT * FROM top_stories ORDER BY created_at DESC');
+  const results = [];
+  for (const row of rows) {
+    const story = camelStory(row);
+    if (story.authorId) {
+      story.author = publicUser(await getUserById(story.authorId));
+    }
+    results.push(story);
+  }
+  return results;
 }
 
-function getTopStoryById(storyId) {
-  return camelStory(database.prepare('SELECT * FROM top_stories WHERE id = ?').get(storyId));
+async function getTopStoryById(storyId) {
+  const row = await dbQueryGet('SELECT * FROM top_stories WHERE id = ?', [storyId]);
+  if (!row) return null;
+
+  const story = camelStory(row);
+  if (story.authorId) {
+    story.author = publicUser(await getUserById(story.authorId));
+  }
+  return story;
 }
 
-function createTopStory({ title, summary, body, category = 'Official', authorId = null }) {
+async function createTopStory({ title, summary, body, category = 'Official', authorId = null }) {
   const id = randomUUID();
-  database.prepare(`
+  await dbQueryRun(`
     INSERT INTO top_stories (id, title, summary, body, category, author_id, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(
+  `, [
     id,
     String(title || '').trim().slice(0, 140),
     String(summary || '').trim().slice(0, 260),
@@ -859,13 +954,13 @@ function createTopStory({ title, summary, body, category = 'Official', authorId 
     String(category || 'Official').trim().slice(0, 60),
     authorId,
     new Date().toISOString(),
-  );
+  ]);
 
-  return getTopStoryById(id);
+  return await getTopStoryById(id);
 }
 
-function createSchema() {
-  database.exec(`
+async function createSchema() {
+  await dbQueryExec(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -1047,46 +1142,39 @@ function createSchema() {
   `);
 }
 
-function columnExists(table, column) {
-  return database.prepare(`PRAGMA table_info(${table})`).all().some((row) => row.name === column);
-}
-
-function runMigrations() {
-  if (!columnExists('users', 'blocked_at')) {
-    database.exec('ALTER TABLE users ADD COLUMN blocked_at TEXT;');
-  }
-
-  const marker = database.prepare("SELECT value FROM app_meta WHERE key = 'direct_admin_login_model_v1'").get();
-  if (!marker) {
-    let sql = "UPDATE users SET role = 'student' WHERE role = 'Admin' AND id <> 'college-admin'";
-    const params = [];
-
-    if (ADMIN_EMAILS.length > 0) {
-      sql += ` AND email NOT IN (${ADMIN_EMAILS.map(() => '?').join(',')})`;
-      params.push(...ADMIN_EMAILS);
-    }
-
-    database.prepare(sql).run(...params);
-    database
-      .prepare("INSERT OR REPLACE INTO app_meta (key, value) VALUES ('direct_admin_login_model_v1', ?)")
-      .run(new Date().toISOString());
+async function columnExists(table, column) {
+  if (isPostgres) {
+    const res = await pgPool.query(
+      `SELECT 1 FROM information_schema.columns WHERE table_name = $1 AND column_name = $2`,
+      [table, column]
+    );
+    return res.rowCount > 0;
+  } else {
+    return sqliteDb.prepare(`PRAGMA table_info(${table})`).all().some((row) => row.name === column);
   }
 }
 
-function removeLegacyDemoData() {
-  const marker = database.prepare("SELECT value FROM app_meta WHERE key = 'legacy_demo_cleanup_v1'").get();
+async function runMigrations() {
+  if (!(await columnExists('users', 'blocked_at'))) {
+    await dbQueryExec('ALTER TABLE users ADD COLUMN blocked_at TEXT;');
+  }
+}
+
+async function removeLegacyDemoData() {
+  const marker = await dbQueryGet("SELECT value FROM app_meta WHERE key = 'legacy_demo_cleanup_v1'");
   if (marker) return;
 
-  database
-    .prepare("DELETE FROM users WHERE email IN ('yash@ghrcem.edu', 'tausif@ghrcem.edu')")
-    .run();
-  database
-    .prepare("INSERT OR REPLACE INTO app_meta (key, value) VALUES ('legacy_demo_cleanup_v1', ?)")
-    .run(new Date().toISOString());
+  await dbQueryRun("DELETE FROM users WHERE email IN ('yash@ghrcem.edu', 'tausif@ghrcem.edu')");
+  await dbQueryRun(`
+    INSERT INTO app_meta (key, value)
+    VALUES ('legacy_demo_cleanup_v1', ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `, [new Date().toISOString()]);
 }
 
-function seedTopStories() {
-  const count = database.prepare('SELECT COUNT(*) AS count FROM top_stories').get().count;
+async function seedTopStories() {
+  const row = await dbQueryGet('SELECT COUNT(*) AS count FROM top_stories');
+  const count = Number(row?.count || 0);
   if (count > 0) return;
 
   const now = Date.now();
@@ -1114,20 +1202,20 @@ function seedTopStories() {
     },
   ];
 
-  const insert = database.prepare(`
-    INSERT INTO top_stories (id, title, summary, body, category, author_id, created_at)
-    VALUES (?, ?, ?, ?, ?, NULL, ?)
-  `);
-
   for (const story of stories) {
-    insert.run(randomUUID(), story.title, story.summary, story.body, story.category, story.createdAt);
+    await dbQueryRun(`
+      INSERT INTO top_stories (id, title, summary, body, category, author_id, created_at)
+      VALUES (?, ?, ?, ?, ?, NULL, ?)
+    `, [randomUUID(), story.title, story.summary, story.body, story.category, story.createdAt]);
   }
 }
 
-createSchema();
-runMigrations();
-removeLegacyDemoData();
-deleteExpiredSessions();
+// Initialize Database
+await createSchema();
+await runMigrations();
+await removeLegacyDemoData();
+await seedTopStories();
+await deleteExpiredSessions();
 
 export const db = {
   publicUser,
