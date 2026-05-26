@@ -3,9 +3,13 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "scripts": {
     "dev": "vite",
     "backend": "node --no-warnings backend/server.mjs",
+    "start": "node --no-warnings backend/server.mjs",
     "build": "tsc -b && vite build",
     "deploy": "npm run build && gh-pages -d dist",
     "lint": "eslint .",

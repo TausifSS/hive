@@ -342,12 +342,15 @@ const PCProfilePage = () => {
                   <MoreHorizontal size={20} color="#6B7280" />
                 </button>
                 {isDropdownOpen && (
-                  <div style={styles.dropdown}>
-                    <button style={styles.dropdownItem} onClick={() => { setIsQrOpen(true); setIsDropdownOpen(false); }}>My QR Ticket</button>
-                    <button style={styles.dropdownItem} onClick={handleCopyProfileLink}>Copy Profile Link</button>
-                    <Link to="/settings" style={{...styles.dropdownItem, textDecoration: 'none', color: '#1F2937', display: 'block'}} onClick={() => setIsDropdownOpen(false)}>Settings</Link>
-                    <button style={{...styles.dropdownItem, color: '#EF4444'}} onClick={() => { setIsDropdownOpen(false); logout(); }}>Log out</button>
-                  </div>
+                  <>
+                    <div style={styles.dropdownBackdrop} onClick={() => setIsDropdownOpen(false)} />
+                    <div style={styles.dropdown}>
+                      <button style={styles.dropdownItem} onClick={() => { setIsQrOpen(true); setIsDropdownOpen(false); }}>My QR Ticket</button>
+                      <button style={styles.dropdownItem} onClick={handleCopyProfileLink}>Copy Profile Link</button>
+                      <Link to="/settings" style={{...styles.dropdownItem, textDecoration: 'none', color: '#1F2937', display: 'block'}} onClick={() => setIsDropdownOpen(false)}>Settings</Link>
+                      <button style={{...styles.dropdownItem, color: '#EF4444'}} onClick={() => { setIsDropdownOpen(false); logout(); }}>Log out</button>
+                    </div>
+                  </>
                 )}
               </div>
             </>
@@ -366,9 +369,12 @@ const PCProfilePage = () => {
                   <MoreHorizontal size={20} color="#6B7280" />
                 </button>
                 {isDropdownOpen && (
-                  <div style={styles.dropdown}>
-                    <button style={styles.dropdownItem} onClick={handleCopyProfileLink}>Copy Profile Link</button>
-                  </div>
+                  <>
+                    <div style={styles.dropdownBackdrop} onClick={() => setIsDropdownOpen(false)} />
+                    <div style={styles.dropdown}>
+                      <button style={styles.dropdownItem} onClick={handleCopyProfileLink}>Copy Profile Link</button>
+                    </div>
+                  </>
                 )}
               </div>
             </>
@@ -870,6 +876,15 @@ const styles: { [key: string]: CSSProperties } = {
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
+  },
+  dropdownBackdrop: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 49,
+    backgroundColor: 'transparent',
   },
   dropdownItem: {
     padding: '10px 16px',

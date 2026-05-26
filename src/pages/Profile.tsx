@@ -7,8 +7,9 @@ import { followUser, getUser, updateCurrentUserProfile, getPosts, getEvents, reg
 import type { User, Post, HiveEvent } from '../lib/api';
 import PostCard from '../components/feed/PostCard';
 import EventCard from '../components/events/EventCard';
+import PCProfilePage from './PCProfile';
 
-const ProfilePage = () => {
+const MobileProfilePage = () => {
     const { user: currentUser, setUser, logout } = useAuth();
     const { userId } = useParams<{ userId: string }>();
     const targetUserId = userId || currentUser?.id;
@@ -252,12 +253,15 @@ const ProfilePage = () => {
                                     <MoreHorizontal size={24} color="#374151" />
                                 </button>
                                 {isDropdownOpen && (
-                                    <div style={styles.dropdown}>
-                                        <button style={styles.dropdownItem} onClick={() => { setIsQrOpen(true); setIsDropdownOpen(false); }}>My QR Ticket</button>
-                                        <button style={styles.dropdownItem} onClick={handleCopyProfileLink}>Copy Profile Link</button>
-                                        <Link to="/settings" style={{...styles.dropdownItem, textDecoration: 'none', color: '#1F2937', display: 'block'}} onClick={() => setIsDropdownOpen(false)}>Settings</Link>
-                                        <button style={{...styles.dropdownItem, color: '#EF4444'}} onClick={() => { setIsDropdownOpen(false); logout(); }}>Log out</button>
-                                    </div>
+                                    <>
+                                        <div style={styles.dropdownBackdrop} onClick={() => setIsDropdownOpen(false)} />
+                                        <div style={styles.dropdown}>
+                                            <button style={styles.dropdownItem} onClick={() => { setIsQrOpen(true); setIsDropdownOpen(false); }}>My QR Ticket</button>
+                                            <button style={styles.dropdownItem} onClick={handleCopyProfileLink}>Copy Profile Link</button>
+                                            <Link to="/settings" style={{...styles.dropdownItem, textDecoration: 'none', color: '#1F2937', display: 'block'}} onClick={() => setIsDropdownOpen(false)}>Settings</Link>
+                                            <button style={{...styles.dropdownItem, color: '#EF4444'}} onClick={() => { setIsDropdownOpen(false); logout(); }}>Log out</button>
+                                        </div>
+                                    </>
                                 )}
                             </div>
                         </>
@@ -696,6 +700,15 @@ const styles: { [key: string]: CSSProperties } = {
         flexDirection: 'column',
         overflow: 'hidden',
     },
+    dropdownBackdrop: {
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 49,
+        backgroundColor: 'transparent',
+    },
     dropdownItem: {
         padding: '10px 16px',
         border: 'none',
@@ -850,6 +863,22 @@ const styles: { [key: string]: CSSProperties } = {
         fontWeight: 'bold',
         border: '1px solid #E5E7EB',
     },
+};
+
+const ProfilePage = () => {
+    const [isDesktop, setIsDesktop] = useState(window.innerWidth > 1024);
+
+    useEffect(() => {
+        const handleResize = () => setIsDesktop(window.innerWidth > 1024);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
+    if (isDesktop) {
+        return <PCProfilePage />;
+    }
+
+    return <MobileProfilePage />;
 };
 
 export default ProfilePage;

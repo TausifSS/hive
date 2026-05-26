@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { ChevronRight, Star, BellOff, Lock, User, Shield, HelpCircle, Info, LogOut } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -28,12 +28,29 @@ const SectionHeader = ({ title }: { title: string }) => (
 const SettingsPage = () => {
     const { logout } = useAuth();
     const [activeSetting, setActiveSetting] = useState('Account privacy');
+    const [isMobile, setIsMobile] = useState(window.innerWidth <= 1024);
+
+    useEffect(() => {
+        const handleResize = () => setIsMobile(window.innerWidth <= 1024);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
 
     return (
-        <div style={styles.container}>
+        <div style={{ 
+            ...styles.container, 
+            margin: isMobile ? '0 auto' : '20px auto', 
+            padding: isMobile ? '16px' : '24px', 
+            border: isMobile ? 'none' : '1px solid #E5E7EB',
+            borderRadius: isMobile ? '0' : '12px'
+        }}>
             <h1 style={styles.mainTitle}>Settings and activity</h1>
 
-            <div style={styles.contentGrid}>
+            <div style={{
+                ...styles.contentGrid,
+                gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1fr) minmax(260px, 320px)',
+                gap: isMobile ? '20px' : '28px'
+            }}>
                 <div>
                     <SectionHeader title="Who can see your content" />
                     <SettingsItem icon={<Lock size={22} color="#4B5563" />} title="Account privacy" onSelect={setActiveSetting} />
@@ -54,7 +71,12 @@ const SettingsPage = () => {
                     </button>
                 </div>
 
-                <aside style={styles.detailPanel}>
+                <aside style={{
+                    ...styles.detailPanel,
+                    position: isMobile ? 'static' : 'sticky',
+                    top: isMobile ? '0' : '20px',
+                    alignSelf: isMobile ? 'stretch' : 'start',
+                }}>
                     <h2 style={styles.detailTitle}>{activeSetting}</h2>
                     <p style={styles.detailText}>{settingDetails[activeSetting]}</p>
                 </aside>

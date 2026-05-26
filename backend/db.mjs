@@ -268,7 +268,7 @@ function publicUser(user) {
 
 function publicClubApplication(application) {
   if (!application) return null;
-  const { passwordHash, certificateData, ...safeApplication } = application;
+  const { passwordHash, ...safeApplication } = application;
   return safeApplication;
 }
 

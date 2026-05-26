@@ -21,6 +21,13 @@ const AdminDashboardPage = () => {
     const [reports, setReports] = useState<any[]>([]);
     const [events, setEvents] = useState<HiveEvent[]>([]);
 
+    const [isMobile, setIsMobile] = useState(window.innerWidth <= 1024);
+    useEffect(() => {
+        const handleResize = () => setIsMobile(window.innerWidth <= 1024);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
     // Attendance desk states
     const [selectedEventId, setSelectedEventId] = useState('');
     const [attendanceStudentId, setAttendanceStudentId] = useState('');
@@ -163,13 +170,19 @@ const AdminDashboardPage = () => {
     };
 
     return (
-        <div style={styles.container}>
-            <div style={styles.header}>
+        <div style={{ ...styles.container, padding: isMobile ? '12px' : '24px' }}>
+            <div style={{
+                ...styles.header,
+                flexDirection: isMobile ? 'column' : 'row',
+                alignItems: isMobile ? 'flex-start' : 'center',
+                gap: '12px',
+                marginBottom: '20px'
+            }}>
                 <div>
                     <h1 style={styles.title}>College Admin</h1>
                     <p style={styles.subtitle}>Manage HIVE users, roles, and blocked accounts</p>
                 </div>
-                <div style={styles.adminBadge}>
+                <div style={{ ...styles.adminBadge, alignSelf: isMobile ? 'stretch' : 'auto', justifyContent: 'center' }}>
                     <Shield size={18} />
                     <span>{currentUser?.name}</span>
                 </div>
@@ -180,28 +193,49 @@ const AdminDashboardPage = () => {
             <div style={styles.panel}>
                 <div style={styles.segmentedTabs}>
                     <button
-                        style={{ ...styles.segmentButton, ...(activeTab === 'students' ? styles.activeSegment : {}) }}
+                        style={{
+                            ...styles.segmentButton,
+                            ...(activeTab === 'students' ? styles.activeSegment : {}),
+                            fontSize: isMobile ? '12px' : '14px',
+                            padding: isMobile ? '8px 10px' : '11px 14px',
+                        }}
                         onClick={() => setActiveTab('students')}
                     >
                         Students
                         <span style={styles.segmentCount}>{studentUsers.length}</span>
                     </button>
                     <button
-                        style={{ ...styles.segmentButton, ...(activeTab === 'clubs' ? styles.activeSegment : {}) }}
+                        style={{
+                            ...styles.segmentButton,
+                            ...(activeTab === 'clubs' ? styles.activeSegment : {}),
+                            fontSize: isMobile ? '12px' : '14px',
+                            padding: isMobile ? '8px 10px' : '11px 14px',
+                        }}
                         onClick={() => setActiveTab('clubs')}
                     >
                         Clubs
                         <span style={styles.segmentCount}>{clubUsers.length}</span>
                     </button>
                     <button
-                        style={{ ...styles.segmentButton, ...(activeTab === 'reports' ? styles.activeSegment : {}) }}
+                        style={{
+                            ...styles.segmentButton,
+                            ...(activeTab === 'reports' ? styles.activeSegment : {}),
+                            fontSize: isMobile ? '12px' : '14px',
+                            padding: isMobile ? '8px 10px' : '11px 14px',
+                        }}
                         onClick={() => setActiveTab('reports')}
                     >
                         Flags
                         <span style={styles.segmentCount}>{reports.length}</span>
                     </button>
                     <button
-                        style={{ ...styles.segmentButton, ...(activeTab === 'attendance' ? styles.activeSegment : {}) }}
+                        style={{
+                            ...styles.segmentButton,
+                            ...(activeTab === 'attendance' ? styles.activeSegment : {}),
+                            fontSize: isMobile ? '12px' : '14px',
+                            padding: isMobile ? '8px 10px' : '11px 14px',
+                            minWidth: isMobile ? '110px' : 'auto',
+                        }}
                         onClick={() => setActiveTab('attendance')}
                     >
                         Verify Check-in
@@ -218,14 +252,14 @@ const AdminDashboardPage = () => {
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                                 {reports.map((report) => (
                                     <div key={report.id} style={{ display: 'flex', flexDirection: 'column', border: '1px solid #E5E7EB', borderRadius: '12px', padding: '16px', backgroundColor: '#F9FAFB' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', gap: '10px', marginBottom: '8px' }}>
                                             <div>
                                                 <span style={{ fontWeight: 'bold', color: '#111827', fontSize: '14px' }}>Reason: "{report.reason}"</span>
                                                 <span style={{ fontSize: '12px', color: '#6B7280', display: 'block', marginTop: '2px' }}>
                                                     Reported by @{report.reporterHandle || report.reportedBy} on {new Date(report.createdAt).toLocaleDateString()}
                                                 </span>
                                             </div>
-                                            <div style={{ display: 'flex', gap: '8px' }}>
+                                            <div style={{ display: 'flex', gap: '8px', alignSelf: isMobile ? 'flex-end' : 'auto' }}>
                                                 <button 
                                                     style={{ border: 'none', borderRadius: '8px', padding: '6px 12px', backgroundColor: '#F3F4F6', color: '#374151', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}
                                                     onClick={() => handleDismissReport(report.id)}
@@ -303,7 +337,7 @@ const AdminDashboardPage = () => {
                                     }}
                                 />
                             </div>
-
+ 
                             <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
                                 <button 
                                     onClick={handleVerifyAttendance} 
@@ -345,7 +379,7 @@ const AdminDashboardPage = () => {
                                 </button>
                             </div>
                         </div>
-
+ 
                         {attendanceMessage && (
                             <div style={{ 
                                 marginTop: '20px', 
@@ -357,69 +391,110 @@ const AdminDashboardPage = () => {
                                 fontSize: '14px',
                                 fontWeight: '600',
                                 maxWidth: '480px'
-                            }}>
+                             }}>
                                 {attendanceMessage.text}
                             </div>
                         )}
                     </div>
                 ) : visibleUsers.length === 0 ? (
                     <>
-                        {activeTab === 'clubs' && <ClubApplications applications={applications} onReview={handleApplicationReview} />}
+                        {activeTab === 'clubs' && <ClubApplications applications={applications} onReview={handleApplicationReview} isMobile={isMobile} />}
                         <div style={styles.stateBox}>No {activeTab === 'students' ? 'students' : 'club admins'} yet.</div>
                     </>
                 ) : (
                     <>
-                        {activeTab === 'clubs' && <ClubApplications applications={applications} onReview={handleApplicationReview} />}
+                        {activeTab === 'clubs' && <ClubApplications applications={applications} onReview={handleApplicationReview} isMobile={isMobile} />}
                         <div style={styles.table}>
                             {visibleUsers.map((user) => {
                                 const isSelf = user.id === currentUser?.id;
                                 return (
-                                    <div key={user.id} style={styles.row}>
+                                    <div key={user.id} style={isMobile ? styles.mobileRow : styles.row}>
                                         <div style={styles.identity}>
                                             <img
                                                 src={user.avatarUrl || 'https://placehold.co/44x44/EFEFEF/333?text=HV'}
                                                 alt={user.name}
                                                 style={styles.avatar}
                                             />
-                                            <div>
+                                            <div style={{ minWidth: 0, overflow: 'hidden' }}>
                                                 <p style={styles.name}>{user.name}</p>
-                                                <p style={styles.meta}>{user.email}</p>
+                                                <p style={{ ...styles.meta, wordBreak: 'break-all' }}>{user.email}</p>
                                                 <p style={styles.meta}>@{user.handle || user.id}</p>
                                             </div>
                                         </div>
 
-                                        <select
-                                            value={user.role}
-                                            onChange={(event) => handleRoleChange(user.id, event.target.value as UserRole)}
-                                            style={styles.select}
-                                            disabled={isSelf}
-                                        >
-                                            <option value="student">Student</option>
-                                            <option value="club_admin">Club Lead / Teacher</option>
-                                            <option value="Admin">College Admin</option>
-                                        </select>
+                                        {isMobile ? (
+                                            <div style={styles.mobileControls}>
+                                                <select
+                                                    value={user.role}
+                                                    onChange={(event) => handleRoleChange(user.id, event.target.value as UserRole)}
+                                                    style={{ ...styles.select, flex: 1, padding: '6px 8px', fontSize: '13px' }}
+                                                    disabled={isSelf}
+                                                >
+                                                    <option value="student">Student</option>
+                                                    <option value="club_admin">Club Lead</option>
+                                                    <option value="Admin">Admin</option>
+                                                </select>
 
-                                        <div style={user.blockedAt ? styles.blockedBadge : styles.activeBadge}>
-                                            {user.blockedAt ? 'Blocked' : roleLabels[user.role]}
-                                        </div>
+                                                <div style={{ ...styles.activeBadge, ...(user.blockedAt ? styles.blockedBadge : {}), flex: 1, padding: '6px 8px', fontSize: '12px' }}>
+                                                    {user.blockedAt ? 'Blocked' : roleLabels[user.role]}
+                                                </div>
 
-                                        <button
-                                            style={styles.iconButton}
-                                            onClick={() => handleBlockToggle(user)}
-                                            disabled={isSelf}
-                                            title={user.blockedAt ? 'Unblock user' : 'Block user'}
-                                        >
-                                            {user.blockedAt ? <UserCheck size={18} /> : <UserX size={18} />}
-                                        </button>
+                                                <div style={{ display: 'flex', gap: '8px' }}>
+                                                    <button
+                                                        style={styles.iconButton}
+                                                        onClick={() => handleBlockToggle(user)}
+                                                        disabled={isSelf}
+                                                        title={user.blockedAt ? 'Unblock user' : 'Block user'}
+                                                    >
+                                                        {user.blockedAt ? <UserCheck size={18} /> : <UserX size={18} />}
+                                                    </button>
 
-                                        <button
-                                            style={styles.deleteButton}
-                                            onClick={() => handleDelete(user)}
-                                            disabled={isSelf}
-                                            title="Delete user"
-                                        >
-                                            <Trash2 size={18} />
-                                        </button>
+                                                    <button
+                                                        style={styles.deleteButton}
+                                                        onClick={() => handleDelete(user)}
+                                                        disabled={isSelf}
+                                                        title="Delete user"
+                                                    >
+                                                        <Trash2 size={18} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                <select
+                                                    value={user.role}
+                                                    onChange={(event) => handleRoleChange(user.id, event.target.value as UserRole)}
+                                                    style={styles.select}
+                                                    disabled={isSelf}
+                                                >
+                                                    <option value="student">Student</option>
+                                                    <option value="club_admin">Club Lead / Teacher</option>
+                                                    <option value="Admin">College Admin</option>
+                                                </select>
+
+                                                <div style={user.blockedAt ? styles.blockedBadge : styles.activeBadge}>
+                                                    {user.blockedAt ? 'Blocked' : roleLabels[user.role]}
+                                                </div>
+
+                                                <button
+                                                    style={styles.iconButton}
+                                                    onClick={() => handleBlockToggle(user)}
+                                                    disabled={isSelf}
+                                                    title={user.blockedAt ? 'Unblock user' : 'Block user'}
+                                                >
+                                                    {user.blockedAt ? <UserCheck size={18} /> : <UserX size={18} />}
+                                                </button>
+
+                                                <button
+                                                    style={styles.deleteButton}
+                                                    onClick={() => handleDelete(user)}
+                                                    disabled={isSelf}
+                                                    title="Delete user"
+                                                >
+                                                    <Trash2 size={18} />
+                                                </button>
+                                            </>
+                                        )}
                                     </div>
                                 );
                             })}
@@ -431,9 +506,10 @@ const AdminDashboardPage = () => {
     );
 };
 
-const ClubApplications = ({ applications, onReview }: {
+const ClubApplications = ({ applications, onReview, isMobile }: {
     applications: ClubApplication[];
     onReview: (application: ClubApplication, status: 'approved' | 'rejected') => void;
+    isMobile: boolean;
 }) => {
     const pendingApplications = applications.filter((application) => application.status === 'pending');
 
@@ -441,17 +517,76 @@ const ClubApplications = ({ applications, onReview }: {
         return <div style={styles.applicationEmpty}>No pending club verification requests.</div>;
     }
 
+    const handleViewCertificate = (app: ClubApplication) => {
+        if (!app.certificateData) {
+            alert('No certificate document content uploaded.');
+            return;
+        }
+        try {
+            const parts = app.certificateData.split(',');
+            const mime = parts[0].match(/:(.*?);/)?.[1] || 'application/octet-stream';
+            const bstr = atob(parts[1]);
+            let n = bstr.length;
+            const u8arr = new Uint8Array(n);
+            while (n--) {
+                u8arr[n] = bstr.charCodeAt(n);
+            }
+            const blob = new Blob([u8arr], { type: mime });
+            const url = URL.createObjectURL(blob);
+            const win = window.open(url, '_blank');
+            if (win) {
+                win.focus();
+            } else {
+                throw new Error('Pop-up blocked');
+            }
+        } catch (e) {
+            const link = document.createElement('a');
+            link.href = app.certificateData;
+            link.download = app.certificateName || 'certificate';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+    };
+
     return (
         <div style={styles.applicationPanel}>
             <h2 style={styles.applicationTitle}>Pending Club Verification</h2>
             {pendingApplications.map((application) => (
-                <div key={application.id} style={styles.applicationRow}>
-                    <div>
+                <div key={application.id} style={{
+                    ...styles.applicationRow,
+                    flexDirection: isMobile ? 'column' : 'row',
+                    alignItems: isMobile ? 'stretch' : 'center',
+                }}>
+                    <div style={{ minWidth: 0 }}>
                         <p style={styles.name}>{application.clubName}</p>
                         <p style={styles.meta}>{application.officialEmail}</p>
-                        <p style={styles.meta}>{application.certificateName}</p>
+                        <p style={{
+                            ...styles.meta,
+                            display: 'flex',
+                            alignItems: 'center',
+                            flexWrap: 'wrap',
+                            gap: '6px',
+                            marginTop: '4px'
+                        }}>
+                            <span>File: {application.certificateName}</span>
+                            {application.certificateData && (
+                                <button
+                                    type="button"
+                                    onClick={() => handleViewCertificate(application)}
+                                    style={styles.viewDocButton}
+                                    title="View Certificate file"
+                                >
+                                    View Certificate
+                                </button>
+                            )}
+                        </p>
                     </div>
-                    <div style={styles.applicationActions}>
+                    <div style={{
+                        ...styles.applicationActions,
+                        justifyContent: isMobile ? 'flex-end' : 'flex-start',
+                        marginTop: isMobile ? '10px' : '0'
+                    }}>
                         <button style={styles.approveButton} onClick={() => onReview(application, 'approved')}><CheckCircle2 size={17} /> Approve</button>
                         <button style={styles.rejectButton} onClick={() => onReview(application, 'rejected')}><XCircle size={17} /> Reject</button>
                     </div>
@@ -564,6 +699,8 @@ const styles: { [key: string]: CSSProperties } = {
         padding: '12px',
         backgroundColor: '#F9FAFB',
         borderBottom: '1px solid #E5E7EB',
+        overflowX: 'auto',
+        scrollbarWidth: 'none',
     },
     segmentButton: {
         display: 'flex',
@@ -598,6 +735,21 @@ const styles: { [key: string]: CSSProperties } = {
         gap: '14px',
         padding: '14px 16px',
         borderBottom: '1px solid #F3F4F6',
+    },
+    mobileRow: {
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'stretch',
+        gap: '12px',
+        padding: '16px',
+        borderBottom: '1px solid #F3F4F6',
+    },
+    mobileControls: {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '8px',
+        flexWrap: 'wrap',
     },
     identity: {
         display: 'flex',
@@ -649,7 +801,7 @@ const styles: { [key: string]: CSSProperties } = {
     iconButton: {
         width: '40px',
         height: '40px',
-        borderRadius: '9px',
+        borderRadius: '999px',
         border: '1px solid #E5E7EB',
         backgroundColor: '#F9FAFB',
         color: '#374151',
@@ -661,7 +813,7 @@ const styles: { [key: string]: CSSProperties } = {
     deleteButton: {
         width: '40px',
         height: '40px',
-        borderRadius: '9px',
+        borderRadius: '999px',
         border: '1px solid #FECACA',
         backgroundColor: '#FEF2F2',
         color: '#DC2626',
@@ -682,6 +834,17 @@ const styles: { [key: string]: CSSProperties } = {
         border: '1px solid #FECACA',
         borderRadius: '12px',
         color: '#DC2626',
+    },
+    viewDocButton: {
+        padding: '4px 8px',
+        fontSize: '11px',
+        fontWeight: 'bold',
+        backgroundColor: '#EEF2F6',
+        color: 'var(--brand-purple, #8B5CF6)',
+        border: '1px solid #D2D6DC',
+        borderRadius: '6px',
+        cursor: 'pointer',
+        marginLeft: '4px',
     },
 };
 

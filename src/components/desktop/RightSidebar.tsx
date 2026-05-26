@@ -49,7 +49,7 @@ const RightSidebar = () => {
     return (
         <aside style={styles.sidebar}>
             {/* Profile Section - Ab yeh poora section ek link hai */}
-            <Link to="/PCprofile" style={{ textDecoration: 'none', color: 'inherit' }}>
+            <Link to="/profile" style={{ textDecoration: 'none', color: 'inherit' }}>
                 <div style={styles.profileContainer}>
                     {user?.avatarUrl ? (
                         <img src={user.avatarUrl} alt={user.name} style={styles.profileAvatar} />
