@@ -4,8 +4,10 @@ import TopNav from '../components/TopNav';
 import BottomNav from '../components/BottomNav';
 import LeftSidebar from '../components/desktop/LeftSidebar';
 import RightSidebar from '../components/desktop/RightSidebar';
+import { useAuth } from '../context/AuthContext';
 
 const AppLayout = ({ children }: { children: React.ReactNode }) => {
+    const { user } = useAuth();
     const [isDesktop, setIsDesktop] = useState(window.innerWidth > 1024); // Breakpoint badhaya
     const location = useLocation(); // Current URL path lene ke liye
 
@@ -18,6 +20,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
     }, []);
 
     useEffect(() => {
+        if (!user) return;
         // SSE update listener (skip in hosted demo mode unless VITE_API_URL is set)
         const isHostedDemo = typeof window !== 'undefined' && window.location.hostname.endsWith('github.io') && !import.meta.env.VITE_API_URL;
         
@@ -25,7 +28,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
         
         if (!isHostedDemo) {
             const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000';
-            eventSource = new EventSource(`${backendUrl}/api/updates`);
+            eventSource = new EventSource(`${backendUrl}/api/updates?userId=${user.id}`);
 
             eventSource.addEventListener('message', (event) => {
                 try {
@@ -82,7 +85,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
             window.removeEventListener('demo-channel-message', handleDemoChannelMessage);
             window.removeEventListener('demo-typing', handleDemoTyping);
         };
-    }, []);
+    }, [user?.id]);
 
     if (isDesktop) {
         return (

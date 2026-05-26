@@ -54,16 +54,51 @@ const SettingsPage = () => {
                 <div>
                     <SectionHeader title="Who can see your content" />
                     <SettingsItem icon={<Lock size={22} color="#4B5563" />} title="Account privacy" onSelect={setActiveSetting} />
+                    {isMobile && activeSetting === 'Account privacy' && (
+                        <div style={styles.mobileDetailCard}>
+                            {settingDetails['Account privacy']}
+                        </div>
+                    )}
                     <SettingsItem icon={<Star size={22} color="#4B5563" />} title="Close Friends" onSelect={setActiveSetting} />
+                    {isMobile && activeSetting === 'Close Friends' && (
+                        <div style={styles.mobileDetailCard}>
+                            {settingDetails['Close Friends']}
+                        </div>
+                    )}
                     <SettingsItem icon={<User size={22} color="#4B5563" />} title="Blocked" onSelect={setActiveSetting} />
+                    {isMobile && activeSetting === 'Blocked' && (
+                        <div style={styles.mobileDetailCard}>
+                            {settingDetails['Blocked']}
+                        </div>
+                    )}
 
                     <SectionHeader title="Your app and media" />
                     <SettingsItem icon={<BellOff size={22} color="#4B5563" />} title="Muted" onSelect={setActiveSetting} />
+                    {isMobile && activeSetting === 'Muted' && (
+                        <div style={styles.mobileDetailCard}>
+                            {settingDetails['Muted']}
+                        </div>
+                    )}
                     <SettingsItem icon={<Shield size={22} color="#4B5563" />} title="Content preferences" onSelect={setActiveSetting} />
+                    {isMobile && activeSetting === 'Content preferences' && (
+                        <div style={styles.mobileDetailCard}>
+                            {settingDetails['Content preferences']}
+                        </div>
+                    )}
 
                     <SectionHeader title="More info and support" />
                     <SettingsItem icon={<HelpCircle size={22} color="#4B5563" />} title="Help" onSelect={setActiveSetting} />
+                    {isMobile && activeSetting === 'Help' && (
+                        <div style={styles.mobileDetailCard}>
+                            {settingDetails['Help']}
+                        </div>
+                    )}
                     <SettingsItem icon={<Info size={22} color="#4B5563" />} title="About" onSelect={setActiveSetting} />
+                    {isMobile && activeSetting === 'About' && (
+                        <div style={styles.mobileDetailCard}>
+                            {settingDetails['About']}
+                        </div>
+                    )}
 
                     <button style={styles.logoutButton} onClick={logout}>
                         <LogOut size={22} color="#EF4444" />
@@ -71,15 +106,12 @@ const SettingsPage = () => {
                     </button>
                 </div>
 
-                <aside style={{
-                    ...styles.detailPanel,
-                    position: isMobile ? 'static' : 'sticky',
-                    top: isMobile ? '0' : '20px',
-                    alignSelf: isMobile ? 'stretch' : 'start',
-                }}>
-                    <h2 style={styles.detailTitle}>{activeSetting}</h2>
-                    <p style={styles.detailText}>{settingDetails[activeSetting]}</p>
-                </aside>
+                {!isMobile && (
+                    <aside style={styles.detailPanel}>
+                        <h2 style={styles.detailTitle}>{activeSetting}</h2>
+                        <p style={styles.detailText}>{settingDetails[activeSetting]}</p>
+                    </aside>
+                )}
             </div>
         </div>
     );
@@ -144,6 +176,17 @@ const styles: { [key: string]: CSSProperties } = {
         borderRadius: '12px',
         padding: '18px',
         backgroundColor: '#F9FAFB',
+    },
+    mobileDetailCard: {
+        padding: '14px 16px',
+        backgroundColor: '#F9FAFB',
+        border: '1px solid #E5E7EB',
+        borderRadius: '8px',
+        marginTop: '-4px',
+        marginBottom: '16px',
+        fontSize: '14px',
+        color: '#4B5563',
+        lineHeight: 1.6,
     },
     detailTitle: {
         margin: '0 0 10px 0',

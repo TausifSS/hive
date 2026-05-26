@@ -251,7 +251,8 @@ async function handleRoute(req, res) {
 
     res.write(':ok\n\n');
 
-    const client = { res };
+    const userId = url.searchParams.get('userId');
+    const client = { res, userId };
     activeClients.push(client);
 
     req.on('close', () => {
@@ -272,6 +273,15 @@ async function handleRoute(req, res) {
       storage: isPostgres ? 'postgresql' : 'sqlite',
       database: DB_FILE,
       time: new Date().toISOString(),
+    });
+    return;
+  }
+ 
+  if (url.pathname === '/api/users/online' && req.method === 'GET') {
+    const onlineUserIds = activeClients.map((c) => c.userId).filter(Boolean);
+    send(req, res, 200, {
+      success: true,
+      onlineUserIds: Array.from(new Set(onlineUserIds)),
     });
     return;
   }

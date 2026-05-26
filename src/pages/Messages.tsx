@@ -3,7 +3,7 @@ import type { CSSProperties, KeyboardEvent, ChangeEvent } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Send, Search, MessageSquare } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { getConversation, getUser, sendConversationMessage, getConversations, getLeaderboard } from '../lib/api';
+import { getConversation, getUser, sendConversationMessage, getConversations, getLeaderboard, getOnlineUsers } from '../lib/api';
 import type { Conversation, User } from '../lib/api';
 
 const MessagesPage = () => {
@@ -18,6 +18,7 @@ const MessagesPage = () => {
     const [isSending, setIsSending] = useState(false);
     const [typingUser, setTypingUser] = useState<{ userId: string; name: string } | null>(null);
     const [mediaAttachment, setMediaAttachment] = useState<{ data: string; name: string; type: string } | null>(null);
+    const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const typingTimeoutRef = useRef<number | null>(null);
@@ -27,6 +28,22 @@ const MessagesPage = () => {
     const [allUsers, setAllUsers] = useState<User[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState<User[]>([]);
+
+    useEffect(() => {
+        const fetchOnline = async () => {
+            try {
+                const res = await getOnlineUsers();
+                if (res.success) {
+                    setOnlineUsers(res.onlineUserIds);
+                }
+            } catch (err) {
+                console.error('Failed to fetch online users', err);
+            }
+        };
+        void fetchOnline();
+        const interval = setInterval(fetchOnline, 10000);
+        return () => clearInterval(interval);
+    }, []);
 
     // Shared states
     const [isLoading, setIsLoading] = useState(true);
@@ -273,11 +290,16 @@ const MessagesPage = () => {
             <div style={styles.container}>
                 <header style={styles.header}>
                     <ArrowLeft size={24} style={{ cursor: 'pointer' }} onClick={() => navigate('/messages')} />
-                    <img
-                        src={targetUser?.avatarUrl || 'https://placehold.co/40x40/EFEFEF/333?text=HV'}
-                        alt={targetUser?.name || 'User'}
-                        style={styles.avatar}
-                    />
+                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center', marginRight: '12px' }}>
+                        <img
+                            src={targetUser?.avatarUrl || 'https://placehold.co/40x40/EFEFEF/333?text=HV'}
+                            alt={targetUser?.name || 'User'}
+                            style={styles.avatar}
+                        />
+                        {targetUser && onlineUsers.includes(targetUser.id) && (
+                            <span style={{ ...styles.onlineBadge, bottom: '2px', right: '2px', width: '10px', height: '10px' }}></span>
+                        )}
+                    </div>
                     <div>
                         <h1 style={styles.userName}>{targetUser?.name || 'Messages'}</h1>
                         <p style={styles.userStatus}>@{targetUser?.handle || targetUser?.id}</p>
@@ -442,11 +464,16 @@ const MessagesPage = () => {
                             <p style={styles.sectionHeader}>Search Results</p>
                             {searchResults.map((u) => (
                                 <Link key={u.id} to={`/messages/${u.id}`} style={styles.convoItem} onClick={() => setSearchQuery('')}>
-                                    <img
-                                        src={u.avatarUrl || 'https://placehold.co/50x50/EFEFEF/333?text=HV'}
-                                        alt={u.name}
-                                        style={styles.inboxAvatar}
-                                    />
+                                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                        <img
+                                            src={u.avatarUrl || 'https://placehold.co/50x50/EFEFEF/333?text=HV'}
+                                            alt={u.name}
+                                            style={styles.inboxAvatar}
+                                        />
+                                        {onlineUsers.includes(u.id) && (
+                                            <span style={styles.onlineBadge}></span>
+                                        )}
+                                    </div>
                                     <div style={styles.convoDetails}>
                                         <h3 style={styles.convoName}>{u.name}</h3>
                                         <p style={styles.convoSnippet}>@{u.handle || u.id}</p>
@@ -481,11 +508,16 @@ const MessagesPage = () => {
 
                             return (
                                 <Link key={convo.id} to={`/messages/${otherUser.id}`} style={{ ...styles.convoItem, ...(isUnread ? { backgroundColor: '#F5F3FF' } : {}) }}>
-                                    <img
-                                        src={otherUser.avatarUrl || 'https://placehold.co/50x50/EFEFEF/333?text=HV'}
-                                        alt={otherUser.name}
-                                        style={styles.inboxAvatar}
-                                    />
+                                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                        <img
+                                            src={otherUser.avatarUrl || 'https://placehold.co/50x50/EFEFEF/333?text=HV'}
+                                            alt={otherUser.name}
+                                            style={styles.inboxAvatar}
+                                        />
+                                        {onlineUsers.includes(otherUser.id) && (
+                                            <span style={styles.onlineBadge}></span>
+                                        )}
+                                    </div>
                                     <div style={styles.convoDetails}>
                                         <div style={styles.convoHeaderRow}>
                                             <h3 style={{ ...styles.convoName, fontWeight: isUnread ? '800' : 'bold' }}>
@@ -516,6 +548,18 @@ const styles: { [key: string]: CSSProperties } = {
         flexDirection: 'column',
         height: '100%',
         backgroundColor: 'white',
+    },
+    onlineBadge: {
+        position: 'absolute',
+        bottom: '0',
+        right: '4px',
+        width: '12px',
+        height: '12px',
+        borderRadius: '50%',
+        backgroundColor: '#10B981',
+        border: '2px solid white',
+        boxShadow: '0 0 0 2px #10B981',
+        zIndex: 5,
     },
     header: {
         display: 'flex',

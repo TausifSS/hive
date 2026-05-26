@@ -496,6 +496,14 @@ async function demoRequest<T>(path: string, options: RequestOptions = {}): Promi
         return finish({ user: publicDemoUser(requireDemoUser(db)) } as T);
     }
 
+    if (url.pathname === '/api/users/online' && method === 'GET') {
+        const demoOnline = ['arjun', 'tausif', 'founder'];
+        const token = getAuthToken();
+        const currentUser = token ? db.sessions[token] : null;
+        if (currentUser) demoOnline.push(currentUser);
+        return finish({ success: true, onlineUserIds: Array.from(new Set(demoOnline)) } as T);
+    }
+
     if (url.pathname === '/api/users/me' && method === 'PATCH') {
         const user = requireDemoUser(db);
         user.name = String(body.name || user.name);
@@ -962,6 +970,9 @@ export const logoutUser = () =>
 
 export const getCurrentUser = () =>
     apiRequest<{ user: User }>('/api/auth/me');
+
+export const getOnlineUsers = () =>
+    apiRequest<{ success: boolean; onlineUserIds: string[] }>('/api/users/online');
 
 export const updateCurrentUserProfile = (body: { name: string; bio?: string; avatarUrl?: string; coverUrl?: string }) =>
     apiRequest<{ user: User }>('/api/users/me', {
