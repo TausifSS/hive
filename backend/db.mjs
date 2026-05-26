@@ -1310,10 +1310,10 @@ async function runMigrations() {
     await dbQueryExec('ALTER TABLE users ADD COLUMN blocked_at TEXT;');
   }
   if (!(await columnExists('messages', 'media_url'))) {
-    await dbQueryExec('ALTER TABLE messages ADD COLUMN media_url TEXT DEFAULT "";');
+    await dbQueryExec("ALTER TABLE messages ADD COLUMN media_url TEXT DEFAULT '';");
   }
   if (!(await columnExists('channel_messages', 'media_url'))) {
-    await dbQueryExec('ALTER TABLE channel_messages ADD COLUMN media_url TEXT DEFAULT "";');
+    await dbQueryExec("ALTER TABLE channel_messages ADD COLUMN media_url TEXT DEFAULT '';");
   }
 
   await dbQueryExec(`
