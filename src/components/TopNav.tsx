@@ -10,7 +10,7 @@ const roleLabels = {
 };
 
 const TopNav = () => {
-    const { user } = useAuth();
+    const { user, unreadCount } = useAuth();
 
     return (
         <header style={styles.header}>
@@ -21,7 +21,14 @@ const TopNav = () => {
             <div style={styles.actions}>
                 {user && <span style={styles.roleBadge}>{roleLabels[user.role]}</span>}
                 <Link to="/messages" style={styles.iconContainer} title="Direct Messages">
-                    <MessageSquare size={24} color="var(--primary-dark)" style={{ marginRight: '4px' }} />
+                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                        <MessageSquare size={24} color="var(--primary-dark)" style={{ marginRight: '4px' }} />
+                        {unreadCount > 0 && (
+                            <span style={styles.badge}>
+                                {unreadCount}
+                            </span>
+                        )}
+                    </div>
                 </Link>
                 <Link to="/profile" style={styles.iconContainer} title="Profile">
                     <UserCircle size={28} color="var(--primary-dark)" />
@@ -72,6 +79,23 @@ const styles: { [key: string]: React.CSSProperties } = {
         alignItems: 'center',
         cursor: 'pointer',
         color: 'inherit', // Link ka default blue color hatane ke liye
+    },
+    badge: {
+        position: 'absolute',
+        top: '-6px',
+        right: '-4px',
+        backgroundColor: '#EF4444',
+        color: 'white',
+        borderRadius: '999px',
+        padding: '2px 6px',
+        fontSize: '10px',
+        fontWeight: 'bold',
+        minWidth: '16px',
+        height: '16px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        boxShadow: '0 0 0 2px var(--background-light)',
     },
     actions: {
         display: 'flex',

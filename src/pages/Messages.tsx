@@ -7,7 +7,7 @@ import { getConversation, getUser, sendConversationMessage, getConversations, ge
 import type { Conversation, User } from '../lib/api';
 
 const MessagesPage = () => {
-    const { user: currentUser } = useAuth();
+    const { user: currentUser, refreshUnread } = useAuth();
     const { userId } = useParams<{ userId: string }>();
     const navigate = useNavigate();
 
@@ -81,6 +81,9 @@ const MessagesPage = () => {
     useEffect(() => {
         if (conversation) {
             scrollToBottom();
+            // Mark convo as read
+            localStorage.setItem(`convo-read-${conversation.id}`, new Date().toISOString());
+            void refreshUnread();
         }
     }, [conversation]);
 
@@ -124,6 +127,55 @@ const MessagesPage = () => {
         }
     };
 
+    // Skeleton loaders
+    const InboxSkeleton = () => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '16px 24px' }}>
+            <style>{`
+                @keyframes pulse {
+                    0%, 100% { opacity: 1; }
+                    50% { opacity: 0.4; }
+                }
+            `}</style>
+            {[1, 2, 3, 4, 5].map((n) => (
+                <div key={n} style={{ display: 'flex', alignItems: 'center', gap: '16px', animation: 'pulse 1.5s infinite' }}>
+                    <div style={{ width: '48px', height: '48px', borderRadius: '50%', backgroundColor: '#E5E7EB' }}></div>
+                    <div style={{ flex: 1 }}>
+                        <div style={{ width: '120px', height: '16px', backgroundColor: '#E5E7EB', borderRadius: '4px', marginBottom: '8px' }}></div>
+                        <div style={{ width: '70%', height: '14px', backgroundColor: '#E5E7EB', borderRadius: '4px' }}></div>
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+
+    const ChatRoomSkeleton = () => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '10px' }}>
+            <style>{`
+                @keyframes pulse {
+                    0%, 100% { opacity: 1; }
+                    50% { opacity: 0.4; }
+                }
+            `}</style>
+            {[1, 2, 3, 4].map((n) => {
+                const isMine = n % 2 === 0;
+                return (
+                    <div key={n} style={{ display: 'flex', justifyContent: isMine ? 'flex-end' : 'flex-start', animation: 'pulse 1.5s infinite' }}>
+                        <div style={{
+                            maxWidth: '70%',
+                            backgroundColor: isMine ? 'rgba(139,92,246,0.1)' : '#E5E7EB',
+                            borderRadius: '12px',
+                            padding: '12px',
+                            width: isMine ? '180px' : '240px'
+                        }}>
+                            <div style={{ width: '100%', height: '14px', backgroundColor: isMine ? '#E5E7EB' : '#CBD5E1', borderRadius: '4px', marginBottom: '6px' }}></div>
+                            <div style={{ width: '50%', height: '14px', backgroundColor: isMine ? '#E5E7EB' : '#CBD5E1', borderRadius: '4px' }}></div>
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
+    );
+
     // Render Conversation Room (Chat)
     if (userId) {
         return (
@@ -143,7 +195,7 @@ const MessagesPage = () => {
 
                 <main style={styles.chatArea}>
                     {isLoading ? (
-                        <div style={styles.notice}>Loading conversation...</div>
+                        <ChatRoomSkeleton />
                     ) : error ? (
                         <div style={styles.errorNotice}>{error}</div>
                     ) : conversation && conversation.messages.length > 0 ? (
@@ -212,7 +264,7 @@ const MessagesPage = () => {
 
             <main style={styles.inboxListArea}>
                 {isLoading ? (
-                    <div style={styles.notice}>Loading conversations...</div>
+                    <InboxSkeleton />
                 ) : error ? (
                     <div style={styles.errorNotice}>{error}</div>
                 ) : searchQuery.trim() ? (
@@ -255,8 +307,14 @@ const MessagesPage = () => {
                             const otherUser = convo.otherUser;
                             if (!otherUser) return null;
 
+                            const isUnread = lastMsg && lastMsg.senderId !== currentUser?.id && (() => {
+                                const readTime = localStorage.getItem(`convo-read-${convo.id}`);
+                                if (!readTime) return true;
+                                return new Date(lastMsg.createdAt).getTime() > new Date(readTime).getTime();
+                            })();
+
                             return (
-                                <Link key={convo.id} to={`/messages/${otherUser.id}`} style={styles.convoItem}>
+                                <Link key={convo.id} to={`/messages/${otherUser.id}`} style={{ ...styles.convoItem, ...(isUnread ? { backgroundColor: '#F5F3FF' } : {}) }}>
                                     <img
                                         src={otherUser.avatarUrl || 'https://placehold.co/50x50/EFEFEF/333?text=HV'}
                                         alt={otherUser.name}
@@ -264,12 +322,15 @@ const MessagesPage = () => {
                                     />
                                     <div style={styles.convoDetails}>
                                         <div style={styles.convoHeaderRow}>
-                                            <h3 style={styles.convoName}>{otherUser.name}</h3>
-                                            <span style={styles.convoTime}>
+                                            <h3 style={{ ...styles.convoName, fontWeight: isUnread ? '800' : 'bold' }}>
+                                                {otherUser.name}
+                                                {isUnread && <span style={styles.unreadDot}></span>}
+                                            </h3>
+                                            <span style={{ ...styles.convoTime, color: isUnread ? 'var(--brand-purple)' : '#9CA3AF', fontWeight: isUnread ? 'bold' : 'normal' }}>
                                                 {new Date(convo.updatedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
                                             </span>
                                         </div>
-                                        <p style={styles.convoSnippet}>
+                                        <p style={{ ...styles.convoSnippet, color: isUnread ? '#1F2937' : '#6B7280', fontWeight: isUnread ? '600' : 'normal' }}>
                                             {lastMsg ? lastMsg.content : 'Start chatting!'}
                                         </p>
                                     </div>
@@ -497,11 +558,12 @@ const styles: { [key: string]: CSSProperties } = {
     convoName: {
         margin: 0,
         fontSize: '15px',
-        fontWeight: 'bold',
         color: '#111827',
         whiteSpace: 'nowrap',
         overflow: 'hidden',
         textOverflow: 'ellipsis',
+        display: 'flex',
+        alignItems: 'center',
     },
     convoTime: {
         fontSize: '12px',
@@ -511,10 +573,18 @@ const styles: { [key: string]: CSSProperties } = {
     convoSnippet: {
         margin: 0,
         fontSize: '14px',
-        color: '#6B7280',
         whiteSpace: 'nowrap',
         overflow: 'hidden',
         textOverflow: 'ellipsis',
+    },
+    unreadDot: {
+        display: 'inline-block',
+        width: '8px',
+        height: '8px',
+        borderRadius: '50%',
+        backgroundColor: 'var(--brand-purple, #8B5CF6)',
+        marginLeft: '8px',
+        flexShrink: 0,
     },
 };
 

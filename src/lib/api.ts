@@ -100,6 +100,14 @@ export interface ChannelMessage {
     author?: User | null;
 }
 
+export interface Channel {
+    id: string;
+    name: string;
+    category: string;
+    createdBy?: string | null;
+    createdAt: string;
+}
+
 export interface AssistantReply {
     id: string;
     sender: 'assistant';
@@ -169,6 +177,7 @@ interface DemoDb {
     clubApplications: DemoClubApplication[];
     conversations: Conversation[];
     channelMessages: Record<string, ChannelMessage[]>;
+    channels: Channel[];
 }
 
 const DEMO_DB_STORAGE_KEY = 'hive-demo-db-v1';
@@ -178,15 +187,16 @@ const nowIso = () => new Date().toISOString();
 
 const readDemoDb = (): DemoDb => {
     const saved = localStorage.getItem(DEMO_DB_STORAGE_KEY);
+    let parsed: DemoDb | null = null;
     if (saved) {
         try {
-            return JSON.parse(saved) as DemoDb;
+            parsed = JSON.parse(saved) as DemoDb;
         } catch {
             localStorage.removeItem(DEMO_DB_STORAGE_KEY);
         }
     }
 
-    return {
+    const defaultDb: DemoDb = {
         users: [],
         sessions: {},
         otps: {},
@@ -196,7 +206,26 @@ const readDemoDb = (): DemoDb => {
         clubApplications: [],
         conversations: [],
         channelMessages: { global: [], professional: [], placements: [] },
+        channels: [
+            { id: 'global', name: 'global-college-chat', category: 'academic', createdAt: nowIso() },
+            { id: 'professional', name: 'professional-chats', category: 'academic', createdAt: nowIso() },
+            { id: 'placements', name: 'placement-talks', category: 'academic', createdAt: nowIso() },
+            { id: 'division-a', name: 'Division A Chat', category: 'academic', createdAt: nowIso() },
+            { id: 'department-cs', name: 'Computer Science Chat', category: 'academic', createdAt: nowIso() },
+            { id: 'year-3', name: 'Third Year Chat', category: 'academic', createdAt: nowIso() },
+            { id: 'club-coding', name: 'Coding Club Chat', category: 'club', createdAt: nowIso() },
+            { id: 'club-sports', name: 'Sports Club Chat', category: 'club', createdAt: nowIso() },
+        ],
     };
+
+    if (parsed) {
+        if (!parsed.channels || parsed.channels.length === 0) {
+            parsed.channels = defaultDb.channels;
+        }
+        return parsed;
+    }
+
+    return defaultDb;
 };
 
 const writeDemoDb = (db: DemoDb) => {
@@ -856,6 +885,15 @@ export const sendConversationMessage = (conversationId: string, content: string)
     apiRequest<{ conversation: Conversation; message: ConversationMessage }>(`/api/conversations/${conversationId}/messages`, {
         method: 'POST',
         body: { content },
+    });
+
+export const getChannels = () =>
+    apiRequest<{ channels: Channel[] }>('/api/chat/channels');
+
+export const createChannel = (body: { name: string; category: string }) =>
+    apiRequest<{ channel: Channel }>('/api/chat/channels', {
+        method: 'POST',
+        body,
     });
 
 export const getChannelMessages = (channelId: string) =>

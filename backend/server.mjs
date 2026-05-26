@@ -956,6 +956,37 @@ async function handleRoute(req, res) {
     return;
   }
 
+  if (url.pathname === '/api/chat/channels' && req.method === 'GET') {
+    const currentUser = await requireUser(req);
+    if (!currentUser) {
+      send(req, res, 401, { error: 'Authentication required' });
+      return;
+    }
+    const channels = await db.listChannels();
+    send(req, res, 200, { channels });
+    return;
+  }
+
+  if (url.pathname === '/api/chat/channels' && req.method === 'POST') {
+    const currentUser = await requireUser(req);
+    if (!currentUser) {
+      send(req, res, 401, { error: 'Authentication required' });
+      return;
+    }
+    const body = await parseBody(req);
+    if (!body.name || !body.category) {
+      send(req, res, 400, { error: 'name and category are required' });
+      return;
+    }
+    const channel = await db.createChannel({
+      name: body.name,
+      category: body.category,
+      createdBy: currentUser.id,
+    });
+    send(req, res, 201, { channel });
+    return;
+  }
+
   if (pathParts[0] === 'api' && pathParts[1] === 'chat' && pathParts[2] === 'channels' && pathParts[3] && pathParts[4] === 'messages' && req.method === 'GET') {
     const currentUser = await requireUser(req);
     if (!currentUser) {

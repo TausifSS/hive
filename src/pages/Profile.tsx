@@ -3,7 +3,7 @@ import type { CSSProperties, ChangeEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { MoreHorizontal, Camera } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { followUser, getUser, updateCurrentUserProfile, getPosts, getEvents, registerForEvent } from '../lib/api';
+import { followUser, getUser, updateCurrentUserProfile, getPosts, getEvents, registerForEvent, getLeaderboard } from '../lib/api';
 import type { User, Post, HiveEvent } from '../lib/api';
 import PostCard from '../components/feed/PostCard';
 import EventCard from '../components/events/EventCard';
@@ -28,6 +28,10 @@ const ProfilePage = () => {
     const [registeredEvents, setRegisteredEvents] = useState<HiveEvent[]>([]);
     const [isDataLoading, setIsDataLoading] = useState(false);
 
+    // Followers/following modal state
+    const [allUsers, setAllUsers] = useState<User[]>([]);
+    const [connectionsModal, setConnectionsModal] = useState<{ open: boolean; type: 'followers' | 'following' }>({ open: false, type: 'followers' });
+
     const loadProfileData = async () => {
         if (!targetUserId) {
             setProfileUser(null);
@@ -44,13 +48,15 @@ const ProfilePage = () => {
 
             // Fetch dynamic tab details
             setIsDataLoading(true);
-            const [postsRes, eventsRes] = await Promise.all([
+            const [postsRes, eventsRes, leaderRes] = await Promise.all([
                 getPosts(),
-                getEvents()
+                getEvents(),
+                getLeaderboard()
             ]);
             
             setUserPosts(postsRes.posts.filter((p) => p.authorId === targetUserId));
             setRegisteredEvents(eventsRes.events.filter((e) => e.registeredUserIds.includes(targetUserId)));
+            setAllUsers(leaderRes.users);
         } catch (profileError) {
             setError(profileError instanceof Error ? profileError.message : 'Unable to load profile');
         } finally {
@@ -140,7 +146,43 @@ const ProfilePage = () => {
     };
 
     if (isLoading) {
-        return <div style={styles.stateBox}>Loading profile...</div>;
+        return (
+            <div style={styles.container}>
+                <style>{`
+                    @keyframes pulse {
+                        0%, 100% { opacity: 1; }
+                        50% { opacity: 0.4; }
+                    }
+                `}</style>
+                <div style={{ ...styles.coverPhoto, backgroundColor: '#E5E7EB', animation: 'pulse 1.5s infinite' }}></div>
+                <div style={{ padding: '16px', position: 'relative', marginTop: '-50px' }}>
+                    <div style={{
+                        width: '100px',
+                        height: '100px',
+                        borderRadius: '50%',
+                        backgroundColor: '#E5E7EB',
+                        border: '4px solid white',
+                        animation: 'pulse 1.5s infinite',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                    }}></div>
+                    <div style={{ marginTop: '16px' }}>
+                        <div style={{ width: '150px', height: '24px', backgroundColor: '#E5E7EB', borderRadius: '4px', marginBottom: '8px', animation: 'pulse 1.5s infinite' }}></div>
+                        <div style={{ width: '80px', height: '16px', backgroundColor: '#E5E7EB', borderRadius: '4px', marginBottom: '16px', animation: 'pulse 1.5s infinite' }}></div>
+                        <div style={{ width: '100%', height: '16px', backgroundColor: '#E5E7EB', borderRadius: '4px', marginBottom: '8px', animation: 'pulse 1.5s infinite' }}></div>
+                        <div style={{ width: '70%', height: '16px', backgroundColor: '#E5E7EB', borderRadius: '4px', marginBottom: '24px', animation: 'pulse 1.5s infinite' }}></div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '16px', marginBottom: '24px' }}>
+                        <div style={{ width: '80px', height: '36px', backgroundColor: '#E5E7EB', borderRadius: '8px', animation: 'pulse 1.5s infinite' }}></div>
+                        <div style={{ width: '80px', height: '36px', backgroundColor: '#E5E7EB', borderRadius: '8px', animation: 'pulse 1.5s infinite' }}></div>
+                        <div style={{ width: '80px', height: '36px', backgroundColor: '#E5E7EB', borderRadius: '8px', animation: 'pulse 1.5s infinite' }}></div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '12px' }}>
+                        <div style={{ flex: 1, height: '40px', backgroundColor: '#E5E7EB', borderRadius: '8px', animation: 'pulse 1.5s infinite' }}></div>
+                        <div style={{ flex: 1, height: '40px', backgroundColor: '#E5E7EB', borderRadius: '8px', animation: 'pulse 1.5s infinite' }}></div>
+                    </div>
+                </div>
+            </div>
+        );
     }
 
     if (error || !profileUser) {
@@ -171,11 +213,11 @@ const ProfilePage = () => {
                         <span style={styles.statValue}>{profileUser.points || 0}</span>
                         <span style={styles.statLabel}>Points</span>
                     </div>
-                    <div style={styles.statItem}>
+                    <div style={{ ...styles.statItem, cursor: 'pointer' }} onClick={() => setConnectionsModal({ open: true, type: 'followers' })}>
                         <span style={styles.statValue}>{profileUser.followers?.length || 0}</span>
                         <span style={styles.statLabel}>Followers</span>
                     </div>
-                    <div style={styles.statItem}>
+                    <div style={{ ...styles.statItem, cursor: 'pointer' }} onClick={() => setConnectionsModal({ open: true, type: 'following' })}>
                         <span style={styles.statValue}>{profileUser.following?.length || 0}</span>
                         <span style={styles.statLabel}>Following</span>
                     </div>
@@ -184,8 +226,7 @@ const ProfilePage = () => {
                 <div style={styles.buttonContainer}>
                     {isMyProfile ? (
                         <>
-                            <button style={styles.editButton} onClick={openEditProfile}>Edit Profile</button>
-                            <Link to={`/messages/${profileUser.id}`} style={styles.shareButton}>Message</Link>
+                            <button style={{ ...styles.editButton, flex: 3 }} onClick={openEditProfile}>Edit Profile</button>
                             <div style={{ position: 'relative' }}>
                                 <button style={styles.moreButton} onClick={() => setIsDropdownOpen(!isDropdownOpen)}>
                                     <MoreHorizontal size={24} color="#374151" />
@@ -359,6 +400,97 @@ const ProfilePage = () => {
                         <div style={styles.modalActions}>
                             <button style={styles.cancelButton} onClick={() => setIsEditOpen(false)}>Cancel</button>
                             <button style={styles.saveProfileButton} onClick={handleSaveProfile}>Save</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {connectionsModal.open && (
+                <div style={styles.modalBackdrop} onClick={() => setConnectionsModal({ open: false, type: 'followers' })}>
+                    <div style={styles.modalContent} onClick={(event) => event.stopPropagation()}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                            <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 'bold', color: '#111827' }}>
+                                {connectionsModal.type === 'followers' ? 'Followers' : 'Following'}
+                            </h2>
+                            <button 
+                                style={{ border: 'none', background: 'none', fontSize: '22px', cursor: 'pointer', fontWeight: 'bold', color: '#6B7280' }}
+                                onClick={() => setConnectionsModal({ open: false, type: 'followers' })}
+                            >
+                                &times;
+                            </button>
+                        </div>
+                        
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '350px', overflowY: 'auto' }}>
+                            {(() => {
+                                const listIds = connectionsModal.type === 'followers' ? (profileUser.followers || []) : (profileUser.following || []);
+                                if (listIds.length === 0) {
+                                    return <p style={{ textAlign: 'center', color: '#6B7280', margin: '20px 0' }}>No users found.</p>;
+                                }
+                                const listUsers = allUsers.filter(u => listIds.includes(u.id));
+                                const resolvedIds = listUsers.map(u => u.id);
+                                const missingIds = listIds.filter(id => !resolvedIds.includes(id));
+                                
+                                return (
+                                    <>
+                                        {listUsers.map((item) => (
+                                            <div key={item.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #F3F4F6' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                    <img 
+                                                        src={item.avatarUrl || 'https://placehold.co/100x100/EFEFEF/333?text=HV'} 
+                                                        alt={item.name} 
+                                                        style={{ width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover' }} 
+                                                    />
+                                                    <div>
+                                                        <div style={{ fontWeight: 'bold', fontSize: '15px', color: '#111827', textAlign: 'left' }}>{item.name}</div>
+                                                        <div style={{ fontSize: '12px', color: '#6B7280', textAlign: 'left' }}>@{item.handle || item.id}</div>
+                                                    </div>
+                                                </div>
+                                                <Link 
+                                                    to={`/profile/${item.id}`} 
+                                                    style={{
+                                                        padding: '6px 12px',
+                                                        backgroundColor: 'var(--brand-purple)',
+                                                        color: 'white',
+                                                        borderRadius: '6px',
+                                                        fontSize: '13px',
+                                                        fontWeight: 'bold',
+                                                        textDecoration: 'none'
+                                                    }}
+                                                    onClick={() => setConnectionsModal({ open: false, type: 'followers' })}
+                                                >
+                                                    View
+                                                </Link>
+                                            </div>
+                                        ))}
+                                        {missingIds.map((id) => (
+                                            <div key={id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #F3F4F6' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                    <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: '#F3F4F6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: '#9CA3AF' }}>?</div>
+                                                    <div>
+                                                        <div style={{ fontWeight: 'bold', fontSize: '15px', color: '#111827', textAlign: 'left' }}>User</div>
+                                                        <div style={{ fontSize: '12px', color: '#6B7280', textAlign: 'left' }}>@{id}</div>
+                                                    </div>
+                                                </div>
+                                                <Link 
+                                                    to={`/profile/${id}`} 
+                                                    style={{
+                                                        padding: '6px 12px',
+                                                        backgroundColor: 'var(--brand-purple)',
+                                                        color: 'white',
+                                                        borderRadius: '6px',
+                                                        fontSize: '13px',
+                                                        fontWeight: 'bold',
+                                                        textDecoration: 'none'
+                                                    }}
+                                                    onClick={() => setConnectionsModal({ open: false, type: 'followers' })}
+                                                >
+                                                    View
+                                                </Link>
+                                            </div>
+                                        ))}
+                                    </>
+                                );
+                            })()}
                         </div>
                     </div>
                 </div>

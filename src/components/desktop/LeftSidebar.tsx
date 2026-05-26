@@ -4,31 +4,35 @@ import { Home, Calendar, Bot, MessageSquare, MessageCircle, Trophy, Newspaper, S
 import { useAuth } from '../../context/AuthContext';
 
 // NavItem component ab Link ban jayega
-const NavItem = ({ icon, title, subtitle, to }: { icon: React.ReactNode, title: string, subtitle: string, to: string }) => {
+const NavItem = ({ icon, title, subtitle, to, badgeCount }: { icon: React.ReactNode, title: string, subtitle: string, to: string, badgeCount?: number }) => {
     const location = useLocation();
     const isActive = location.pathname === to;
 
     return (
-        <Link to={to} style={{ ...styles.navItem, ...(isActive ? styles.activeNavItem : {}), textDecoration: 'none' }}>
+        <Link to={to} style={{ ...styles.navItem, ...(isActive ? styles.activeNavItem : {}), textDecoration: 'none', position: 'relative' }}>
             <div style={styles.navIcon}>{icon}</div>
-            <div>
+            <div style={{ flex: 1 }}>
                 <div style={styles.navTitle}>{title}</div>
                 <div style={styles.navSubtitle}>{subtitle}</div>
             </div>
+            {badgeCount !== undefined && badgeCount > 0 && (
+                <span style={styles.sidebarBadge}>
+                    {badgeCount}
+                </span>
+            )}
         </Link>
     );
 };
 
 const LeftSidebar = () => {
-    const { user } = useAuth();
+    const { user, unreadCount } = useAuth();
     const navItems = [
         { icon: <Home size={24} />, title: 'Home', subtitle: 'Student Feed', to: '/' },
         ...(['club_admin', 'Admin'].includes(user?.role || '') ? [{ icon: <Building2 size={24} />, title: 'Club Panel', subtitle: 'Club Tools', to: '/club' }] : []),
         { icon: <Calendar size={24} />, title: 'Events', subtitle: 'Campus Events', to: '/events' },
         { icon: <Bot size={24} />, title: 'Hey GHR', subtitle: 'AI Assistant', to: '/ai' },
-        { icon: <MessageSquare size={24} />, title: 'Social Chat', subtitle: 'Community Help', to: '/chat' },
-        { icon: <MessageCircle size={24} />, title: 'Direct Messages', subtitle: 'Private Chats', to: '/messages' },
-        { icon: <Trophy size={24} />, title: 'Leaderboard', subtitle: 'Rankings', to: '/leaderboard' },
+        { icon: <MessageSquare size={24} />, title: 'Community', subtitle: 'Channels', to: '/chat' },
+        { icon: <MessageCircle size={24} />, title: 'Direct Messages', subtitle: 'Private Chats', to: '/messages', badgeCount: unreadCount },
         { icon: <Newspaper size={24} />, title: 'Top Stories', subtitle: 'Official Updates', to: '/top-stories' },
     ];
     if (user?.role === 'Admin') {
@@ -49,14 +53,14 @@ const LeftSidebar = () => {
                     {navItems.map(item => <NavItem key={item.title} {...item} />)}
                 </nav>
             </div>
-            <div style={styles.pointsCard}>
+            <Link to="/leaderboard" style={{ ...styles.pointsCard, textDecoration: 'none', cursor: 'pointer' }}>
                 <Trophy size={24} color="#F97316" />
                 <div style={{ flex: 1 }}>
                     <p style={styles.pointsTitle}>Your Points</p>
                     <p style={styles.pointsValue}>{user?.points || 0}</p>
                 </div>
                 <p style={styles.pointsSubtitle}>{user?.role === 'club_admin' ? 'Club Lead tools active' : user?.role === 'Admin' ? 'College Admin mode' : 'Keep participating!'}</p>
-            </div>
+            </Link>
         </aside>
     );
 };
@@ -64,12 +68,29 @@ const LeftSidebar = () => {
 const styles: { [key: string]: React.CSSProperties } = {
     sidebar: {
         width: '280px',
+        height: '100vh',
+        position: 'sticky',
+        top: 0,
+        overflowY: 'auto',
         backgroundColor: 'white',
         borderRight: '1px solid #E5E7EB',
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'space-between',
         padding: '24px',
+    },
+    sidebarBadge: {
+        backgroundColor: '#EF4444',
+        color: 'white',
+        borderRadius: '999px',
+        padding: '2px 6px',
+        fontSize: '11px',
+        fontWeight: 'bold',
+        minWidth: '18px',
+        height: '18px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     logoContainer: {
         display: 'flex',

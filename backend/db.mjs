@@ -563,8 +563,8 @@ async function updateUserProfile(userId, fields) {
 
   const name = String(fields.name || currentUser.name).trim().slice(0, 80);
   const bio = String(fields.bio ?? currentUser.bio ?? '').trim().slice(0, 240);
-  const avatarUrl = String(fields.avatarUrl ?? currentUser.avatarUrl ?? '').trim().slice(0, 2000);
-  const coverUrl = String(fields.coverUrl ?? currentUser.coverUrl ?? '').trim().slice(0, 2000);
+  const avatarUrl = String(fields.avatarUrl ?? currentUser.avatarUrl ?? '').trim();
+  const coverUrl = String(fields.coverUrl ?? currentUser.coverUrl ?? '').trim();
 
   if (!name) return { error: 'name-required' };
 
@@ -875,10 +875,32 @@ async function addConversationMessage(conversationId, senderId, content) {
   };
 }
 
-const CHAT_CHANNELS = new Set(['global', 'professional', 'placements']);
+async function channelExists(channelId) {
+  const row = await dbQueryGet('SELECT 1 FROM channels WHERE id = ?', [channelId]);
+  return row !== null;
+}
+
+async function getChannelById(channelId) {
+  return await dbQueryGet('SELECT * FROM channels WHERE id = ?', [channelId]);
+}
+
+async function listChannels() {
+  return await dbQueryAll('SELECT * FROM channels ORDER BY category ASC, name ASC');
+}
+
+async function createChannel({ id, name, category, createdBy = null }) {
+  const actualId = id || `channel-${randomUUID()}`;
+  const now = new Date().toISOString();
+  await dbQueryRun(`
+    INSERT INTO channels (id, name, category, created_by, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `, [actualId, name, category, createdBy, now]);
+  return await getChannelById(actualId);
+}
 
 async function listChannelMessages(channelId) {
-  if (!CHAT_CHANNELS.has(channelId)) return null;
+  const exists = await channelExists(channelId);
+  if (!exists) return null;
 
   const rows = await dbQueryAll('SELECT * FROM channel_messages WHERE channel_id = ? ORDER BY created_at ASC', [channelId]);
   const results = [];
@@ -896,7 +918,8 @@ async function listChannelMessages(channelId) {
 }
 
 async function addChannelMessage(channelId, senderId, content) {
-  if (!CHAT_CHANNELS.has(channelId)) return { error: 'not-found' };
+  const exists = await channelExists(channelId);
+  if (!exists) return { error: 'not-found' };
 
   const message = {
     id: randomUUID(),
@@ -995,6 +1018,14 @@ async function createSchema() {
       cover_url TEXT NOT NULL DEFAULT '',
       points INTEGER NOT NULL DEFAULT 0,
       blocked_at TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS channels (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      created_by TEXT,
       created_at TEXT NOT NULL
     );
 
@@ -1232,11 +1263,37 @@ async function seedTopStories() {
   }
 }
 
+async function seedChannels() {
+  const row = await dbQueryGet('SELECT COUNT(*) AS count FROM channels');
+  const count = Number(row?.count || 0);
+  if (count > 0) return;
+
+  const defaultChannels = [
+    { id: 'global', name: 'global-college-chat', category: 'academic' },
+    { id: 'professional', name: 'professional-chats', category: 'academic' },
+    { id: 'placements', name: 'placement-talks', category: 'academic' },
+    { id: 'division-a', name: 'Division A Chat', category: 'academic' },
+    { id: 'department-cs', name: 'Computer Science Chat', category: 'academic' },
+    { id: 'year-3', name: 'Third Year Chat', category: 'academic' },
+    { id: 'club-coding', name: 'Coding Club Chat', category: 'club' },
+    { id: 'club-sports', name: 'Sports Club Chat', category: 'club' },
+  ];
+
+  const now = new Date().toISOString();
+  for (const chan of defaultChannels) {
+    await dbQueryRun(`
+      INSERT INTO channels (id, name, category, created_by, created_at)
+      VALUES (?, ?, ?, NULL, ?)
+    `, [chan.id, chan.name, chan.category, now]);
+  }
+}
+
 // Initialize Database
 await createSchema();
 await runMigrations();
 await removeLegacyDemoData();
 await seedTopStories();
+await seedChannels();
 await deleteExpiredSessions();
 
 export const db = {
@@ -1285,6 +1342,8 @@ export const db = {
   addConversationMessage,
   listChannelMessages,
   addChannelMessage,
+  listChannels,
+  createChannel,
   listTopStories,
   getTopStoryById,
   createTopStory,

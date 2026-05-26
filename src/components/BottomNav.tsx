@@ -34,7 +34,7 @@ const BottomNav = () => {
             ) : user?.role === 'club_admin' ? (
                 <NavItem icon={<Building2 />} label="Club" to="/club" />
             ) : (
-                <NavItem icon={<MessageSquare />} label="Chat" to="/chat" />
+                <NavItem icon={<MessageSquare />} label="Community" to="/chat" />
             )}
             <NavItem icon={<Trophy />} label="Leaderboard" to="/leaderboard" />
         </footer>
