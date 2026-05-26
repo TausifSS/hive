@@ -9,7 +9,7 @@ const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const OTP_FROM_EMAIL = process.env.OTP_FROM_EMAIL || 'HIVE <onboarding@resend.dev>';
 const OTP_REPLY_TO = process.env.OTP_REPLY_TO || '';
 const ADMIN_LOGIN_ID = process.env.ADMIN_LOGIN_ID || 'admin';
-const ADMIN_LOGIN_PASSWORD = process.env.ADMIN_LOGIN_PASSWORD || (process.env.NODE_ENV === 'production' ? '' : 'admin123');
+const ADMIN_LOGIN_PASSWORD = process.env.ADMIN_LOGIN_PASSWORD || 'admin123';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '';
 const MAX_BODY_BYTES = 5_000_000;
 const MIN_PASSWORD_LENGTH = 6;
