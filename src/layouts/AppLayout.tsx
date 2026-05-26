@@ -5,6 +5,7 @@ import BottomNav from '../components/BottomNav';
 import LeftSidebar from '../components/desktop/LeftSidebar';
 import RightSidebar from '../components/desktop/RightSidebar';
 import { useAuth } from '../context/AuthContext';
+import { API_BASE_URL } from '../lib/api';
 
 const AppLayout = ({ children }: { children: React.ReactNode }) => {
     const { user } = useAuth();
@@ -21,14 +22,11 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
 
     useEffect(() => {
         if (!user) return;
-        // SSE update listener (skip in hosted demo mode unless VITE_API_URL is set)
-        const isHostedDemo = typeof window !== 'undefined' && window.location.hostname.endsWith('github.io') && !import.meta.env.VITE_API_URL;
         
         let eventSource: EventSource | null = null;
         
-        if (!isHostedDemo) {
-            const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000';
-            eventSource = new EventSource(`${backendUrl}/api/updates?userId=${user.id}`);
+        try {
+            eventSource = new EventSource(`${API_BASE_URL}/api/updates?userId=${user.id}`);
 
             eventSource.addEventListener('message', (event) => {
                 try {
@@ -60,6 +58,8 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
             eventSource.onerror = (err) => {
                 console.error('SSE Error:', err);
             };
+        } catch (err) {
+            console.error('EventSource initialization failed', err);
         }
 
         // Listen for local demo events and bridge them to the same api-events

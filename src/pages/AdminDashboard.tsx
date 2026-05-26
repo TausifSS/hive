@@ -22,6 +22,7 @@ const AdminDashboardPage = () => {
     const [events, setEvents] = useState<HiveEvent[]>([]);
 
     const [isMobile, setIsMobile] = useState(window.innerWidth <= 1024);
+    const [previewDoc, setPreviewDoc] = useState<{ name: string; data: string } | null>(null);
     useEffect(() => {
         const handleResize = () => setIsMobile(window.innerWidth <= 1024);
         window.addEventListener('resize', handleResize);
@@ -198,6 +199,8 @@ const AdminDashboardPage = () => {
                             ...(activeTab === 'students' ? styles.activeSegment : {}),
                             fontSize: isMobile ? '12px' : '14px',
                             padding: isMobile ? '8px 10px' : '11px 14px',
+                            flex: isMobile ? '0 0 auto' : 1,
+                            whiteSpace: 'nowrap',
                         }}
                         onClick={() => setActiveTab('students')}
                     >
@@ -210,6 +213,8 @@ const AdminDashboardPage = () => {
                             ...(activeTab === 'clubs' ? styles.activeSegment : {}),
                             fontSize: isMobile ? '12px' : '14px',
                             padding: isMobile ? '8px 10px' : '11px 14px',
+                            flex: isMobile ? '0 0 auto' : 1,
+                            whiteSpace: 'nowrap',
                         }}
                         onClick={() => setActiveTab('clubs')}
                     >
@@ -222,6 +227,8 @@ const AdminDashboardPage = () => {
                             ...(activeTab === 'reports' ? styles.activeSegment : {}),
                             fontSize: isMobile ? '12px' : '14px',
                             padding: isMobile ? '8px 10px' : '11px 14px',
+                            flex: isMobile ? '0 0 auto' : 1,
+                            whiteSpace: 'nowrap',
                         }}
                         onClick={() => setActiveTab('reports')}
                     >
@@ -234,7 +241,8 @@ const AdminDashboardPage = () => {
                             ...(activeTab === 'attendance' ? styles.activeSegment : {}),
                             fontSize: isMobile ? '12px' : '14px',
                             padding: isMobile ? '8px 10px' : '11px 14px',
-                            minWidth: isMobile ? '110px' : 'auto',
+                            flex: isMobile ? '0 0 auto' : 1,
+                            whiteSpace: 'nowrap',
                         }}
                         onClick={() => setActiveTab('attendance')}
                     >
@@ -398,69 +406,96 @@ const AdminDashboardPage = () => {
                     </div>
                 ) : visibleUsers.length === 0 ? (
                     <>
-                        {activeTab === 'clubs' && <ClubApplications applications={applications} onReview={handleApplicationReview} isMobile={isMobile} />}
+                        {activeTab === 'clubs' && <ClubApplications applications={applications} onReview={handleApplicationReview} isMobile={isMobile} onViewCertificate={(name, data) => setPreviewDoc({ name, data })} />}
                         <div style={styles.stateBox}>No {activeTab === 'students' ? 'students' : 'club admins'} yet.</div>
                     </>
                 ) : (
                     <>
-                        {activeTab === 'clubs' && <ClubApplications applications={applications} onReview={handleApplicationReview} isMobile={isMobile} />}
+                        {activeTab === 'clubs' && <ClubApplications applications={applications} onReview={handleApplicationReview} isMobile={isMobile} onViewCertificate={(name, data) => setPreviewDoc({ name, data })} />}
                         <div style={styles.table}>
                             {visibleUsers.map((user) => {
                                 const isSelf = user.id === currentUser?.id;
                                 return (
-                                    <div key={user.id} style={isMobile ? styles.mobileRow : styles.row}>
-                                        <div style={styles.identity}>
-                                            <img
-                                                src={user.avatarUrl || 'https://placehold.co/44x44/EFEFEF/333?text=HV'}
-                                                alt={user.name}
-                                                style={styles.avatar}
-                                            />
-                                            <div style={{ minWidth: 0, overflow: 'hidden' }}>
-                                                <p style={styles.name}>{user.name}</p>
-                                                <p style={{ ...styles.meta, wordBreak: 'break-all' }}>{user.email}</p>
-                                                <p style={styles.meta}>@{user.handle || user.id}</p>
-                                            </div>
-                                        </div>
-
+                                    <div key={user.id}>
                                         {isMobile ? (
-                                            <div style={styles.mobileControls}>
-                                                <select
-                                                    value={user.role}
-                                                    onChange={(event) => handleRoleChange(user.id, event.target.value as UserRole)}
-                                                    style={{ ...styles.select, flex: 1, padding: '6px 8px', fontSize: '13px' }}
-                                                    disabled={isSelf}
-                                                >
-                                                    <option value="student">Student</option>
-                                                    <option value="club_admin">Club Lead</option>
-                                                    <option value="Admin">Admin</option>
-                                                </select>
-
-                                                <div style={{ ...styles.activeBadge, ...(user.blockedAt ? styles.blockedBadge : {}), flex: 1, padding: '6px 8px', fontSize: '12px' }}>
-                                                    {user.blockedAt ? 'Blocked' : roleLabels[user.role]}
+                                            <div style={{
+                                                ...styles.mobileRowContainer,
+                                                borderColor: user.blockedAt ? '#FCA5A5' : '#E5E7EB',
+                                                backgroundColor: user.blockedAt ? '#FFFDFD' : 'white',
+                                            }}>
+                                                <div style={styles.mobileRowTop}>
+                                                    <div style={styles.identity}>
+                                                        <img
+                                                            src={user.avatarUrl || 'https://placehold.co/44x44/EFEFEF/333?text=HV'}
+                                                            alt={user.name}
+                                                            style={styles.avatar}
+                                                        />
+                                                        <div style={{ minWidth: 0, overflow: 'hidden' }}>
+                                                            <p style={styles.name}>{user.name}</p>
+                                                            <p style={{ ...styles.meta, wordBreak: 'break-all' }}>{user.email}</p>
+                                                            <p style={styles.meta}>@{user.handle || user.id}</p>
+                                                        </div>
+                                                    </div>
+                                                    {user.blockedAt ? (
+                                                        <span style={styles.blockedBadgeTop}>Blocked</span>
+                                                    ) : (
+                                                        <span style={{
+                                                            ...styles.blockedBadgeTop,
+                                                            backgroundColor: '#ECFDF5',
+                                                            color: '#047857'
+                                                        }}>{roleLabels[user.role]}</span>
+                                                    )}
                                                 </div>
-
-                                                <div style={{ display: 'flex', gap: '8px' }}>
-                                                    <button
-                                                        style={styles.iconButton}
-                                                        onClick={() => handleBlockToggle(user)}
+                                                <div style={styles.mobileDivider} />
+                                                <div style={styles.mobileRowBottom}>
+                                                    <select
+                                                        value={user.role}
+                                                        onChange={(event) => handleRoleChange(user.id, event.target.value as UserRole)}
+                                                        style={styles.mobileSelect}
                                                         disabled={isSelf}
-                                                        title={user.blockedAt ? 'Unblock user' : 'Block user'}
                                                     >
-                                                        {user.blockedAt ? <UserCheck size={18} /> : <UserX size={18} />}
-                                                    </button>
-
-                                                    <button
-                                                        style={styles.deleteButton}
-                                                        onClick={() => handleDelete(user)}
-                                                        disabled={isSelf}
-                                                        title="Delete user"
-                                                    >
-                                                        <Trash2 size={18} />
-                                                    </button>
+                                                        <option value="student">Student</option>
+                                                        <option value="club_admin">Club Lead</option>
+                                                        <option value="Admin">Admin</option>
+                                                    </select>
+                                                    <div style={styles.mobileActions}>
+                                                        <button
+                                                            style={styles.mobileActionButton}
+                                                            onClick={() => handleBlockToggle(user)}
+                                                            disabled={isSelf}
+                                                            title={user.blockedAt ? 'Unblock user' : 'Block user'}
+                                                        >
+                                                            {user.blockedAt ? <UserCheck size={18} color="#047857" /> : <UserX size={18} color="#4B5563" />}
+                                                            <span style={{ fontSize: '12px', fontWeight: 'bold', color: user.blockedAt ? '#047857' : '#4B5563', marginLeft: '4px' }}>
+                                                                {user.blockedAt ? 'Unblock' : 'Block'}
+                                                            </span>
+                                                        </button>
+                                                        <button
+                                                            style={styles.mobileDeleteButton}
+                                                            onClick={() => handleDelete(user)}
+                                                            disabled={isSelf}
+                                                            title="Delete user"
+                                                        >
+                                                            <Trash2 size={18} />
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             </div>
                                         ) : (
-                                            <>
+                                            <div style={styles.row}>
+                                                <div style={styles.identity}>
+                                                    <img
+                                                        src={user.avatarUrl || 'https://placehold.co/44x44/EFEFEF/333?text=HV'}
+                                                        alt={user.name}
+                                                        style={styles.avatar}
+                                                    />
+                                                    <div style={{ minWidth: 0, overflow: 'hidden' }}>
+                                                        <p style={styles.name}>{user.name}</p>
+                                                        <p style={{ ...styles.meta, wordBreak: 'break-all' }}>{user.email}</p>
+                                                        <p style={styles.meta}>@{user.handle || user.id}</p>
+                                                    </div>
+                                                </div>
+
                                                 <select
                                                     value={user.role}
                                                     onChange={(event) => handleRoleChange(user.id, event.target.value as UserRole)}
@@ -493,7 +528,7 @@ const AdminDashboardPage = () => {
                                                 >
                                                     <Trash2 size={18} />
                                                 </button>
-                                            </>
+                                            </div>
                                         )}
                                     </div>
                                 );
@@ -502,52 +537,58 @@ const AdminDashboardPage = () => {
                     </>
                 )}
             </div>
+
+            {previewDoc && (
+                <div style={styles.modalBackdrop} onClick={() => setPreviewDoc(null)}>
+                    <div style={styles.previewModalContent} onClick={(e) => e.stopPropagation()}>
+                        <div style={styles.modalHeader}>
+                            <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold', color: '#111827' }}>{previewDoc.name}</h3>
+                            <button style={styles.closeButton} onClick={() => setPreviewDoc(null)}>×</button>
+                        </div>
+                        <div style={styles.previewModalBody}>
+                            {previewDoc.data.startsWith('data:image/') ? (
+                                <img
+                                    src={previewDoc.data}
+                                    alt="Club Certificate Preview"
+                                    style={styles.previewImage}
+                                />
+                            ) : previewDoc.data.startsWith('data:application/pdf') ? (
+                                <iframe
+                                    src={previewDoc.data}
+                                    title="Club Certificate Preview"
+                                    style={styles.previewIframe}
+                                />
+                            ) : (
+                                <div style={styles.unsupportedPreview}>
+                                    <p style={{ margin: '0 0 16px 0', fontSize: '15px' }}>This document type cannot be previewed directly.</p>
+                                    <a
+                                        href={previewDoc.data}
+                                        download={previewDoc.name}
+                                        style={styles.downloadLink}
+                                    >
+                                        Download Certificate
+                                    </a>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
 
-const ClubApplications = ({ applications, onReview, isMobile }: {
+const ClubApplications = ({ applications, onReview, isMobile, onViewCertificate }: {
     applications: ClubApplication[];
     onReview: (application: ClubApplication, status: 'approved' | 'rejected') => void;
     isMobile: boolean;
+    onViewCertificate: (name: string, data: string) => void;
 }) => {
     const pendingApplications = applications.filter((application) => application.status === 'pending');
 
     if (pendingApplications.length === 0) {
         return <div style={styles.applicationEmpty}>No pending club verification requests.</div>;
     }
-
-    const handleViewCertificate = (app: ClubApplication) => {
-        if (!app.certificateData) {
-            alert('No certificate document content uploaded.');
-            return;
-        }
-        try {
-            const parts = app.certificateData.split(',');
-            const mime = parts[0].match(/:(.*?);/)?.[1] || 'application/octet-stream';
-            const bstr = atob(parts[1]);
-            let n = bstr.length;
-            const u8arr = new Uint8Array(n);
-            while (n--) {
-                u8arr[n] = bstr.charCodeAt(n);
-            }
-            const blob = new Blob([u8arr], { type: mime });
-            const url = URL.createObjectURL(blob);
-            const win = window.open(url, '_blank');
-            if (win) {
-                win.focus();
-            } else {
-                throw new Error('Pop-up blocked');
-            }
-        } catch (e) {
-            const link = document.createElement('a');
-            link.href = app.certificateData;
-            link.download = app.certificateName || 'certificate';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        }
-    };
 
     return (
         <div style={styles.applicationPanel}>
@@ -573,7 +614,7 @@ const ClubApplications = ({ applications, onReview, isMobile }: {
                             {application.certificateData && (
                                 <button
                                     type="button"
-                                    onClick={() => handleViewCertificate(application)}
+                                    onClick={() => onViewCertificate(application.certificateName, application.certificateData || '')}
                                     style={styles.viewDocButton}
                                     title="View Certificate file"
                                 >
@@ -845,6 +886,140 @@ const styles: { [key: string]: CSSProperties } = {
         borderRadius: '6px',
         cursor: 'pointer',
         marginLeft: '4px',
+    },
+    mobileRowContainer: {
+        display: 'flex',
+        flexDirection: 'column',
+        padding: '16px',
+        backgroundColor: 'white',
+        borderRadius: '12px',
+        border: '1px solid #E5E7EB',
+        marginBottom: '12px',
+        textAlign: 'left',
+    },
+    mobileRowTop: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+    },
+    mobileDivider: {
+        height: '1px',
+        backgroundColor: '#F3F4F6',
+        margin: '12px 0',
+    },
+    mobileRowBottom: {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '12px',
+    },
+    mobileSelect: {
+        flex: 1,
+        padding: '8px 10px',
+        borderRadius: '8px',
+        border: '1px solid #D1D5DB',
+        backgroundColor: 'white',
+        fontWeight: '600',
+        fontSize: '13px',
+    },
+    mobileActions: {
+        display: 'flex',
+        gap: '8px',
+        alignItems: 'center',
+    },
+    mobileActionButton: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '4px',
+        padding: '8px 12px',
+        borderRadius: '8px',
+        border: '1px solid #E5E7EB',
+        backgroundColor: '#F9FAFB',
+        cursor: 'pointer',
+    },
+    mobileDeleteButton: {
+        width: '36px',
+        height: '36px',
+        borderRadius: '8px',
+        border: '1px solid #FECACA',
+        backgroundColor: '#FEF2F2',
+        color: '#DC2626',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    blockedBadgeTop: {
+        padding: '4px 8px',
+        borderRadius: '999px',
+        backgroundColor: '#FEF2F2',
+        color: '#DC2626',
+        fontSize: '11px',
+        fontWeight: 'bold',
+    },
+    previewModalContent: {
+        width: '100%',
+        maxWidth: '640px',
+        backgroundColor: 'white',
+        borderRadius: '16px',
+        boxShadow: '0 10px 25px rgba(0, 0, 0, 0.15)',
+        display: 'flex',
+        flexDirection: 'column',
+        maxHeight: '85vh',
+        overflow: 'hidden',
+    },
+    modalHeader: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: '16px 20px',
+        borderBottom: '1px solid #E5E7EB',
+    },
+    closeButton: {
+        border: 'none',
+        background: 'none',
+        fontSize: '28px',
+        color: '#6B7280',
+        cursor: 'pointer',
+        lineHeight: 1,
+    },
+    previewModalBody: {
+        padding: '20px',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: '#F9FAFB',
+        overflowY: 'auto',
+        flex: 1,
+    },
+    previewImage: {
+        maxWidth: '100%',
+        maxHeight: '60vh',
+        objectFit: 'contain',
+        borderRadius: '8px',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+    },
+    previewIframe: {
+        width: '100%',
+        height: '60vh',
+        border: 'none',
+        borderRadius: '8px',
+        backgroundColor: 'white',
+    },
+    unsupportedPreview: {
+        padding: '40px 20px',
+        textAlign: 'center',
+        color: '#4B5563',
+    },
+    downloadLink: {
+        display: 'inline-block',
+        marginTop: '12px',
+        padding: '10px 20px',
+        backgroundColor: 'var(--brand-purple)',
+        color: 'white',
+        fontWeight: 'bold',
+        textDecoration: 'none',
+        borderRadius: '8px',
     },
 };
 

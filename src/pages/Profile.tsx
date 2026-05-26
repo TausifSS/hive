@@ -199,6 +199,12 @@ const MobileProfilePage = () => {
 
     return (
         <div style={styles.container}>
+            <style>{`
+                @keyframes slideUp {
+                    from { transform: translateY(100%); }
+                    to { transform: translateY(0); }
+                }
+            `}</style>
             <header style={styles.header}>
                 <div style={{ ...styles.coverPhoto, backgroundImage: `url("${profileUser.coverUrl || 'https://placehold.co/600x200/374151/E5E7EB?text=Cover+Photo'}")` }}></div>
                 <div style={{
@@ -252,18 +258,20 @@ const MobileProfilePage = () => {
                                 <button style={styles.moreButton} onClick={() => setIsDropdownOpen(!isDropdownOpen)}>
                                     <MoreHorizontal size={24} color="#374151" />
                                 </button>
-                                {isDropdownOpen && (
-                                    <>
-                                        <div style={styles.dropdownBackdrop} onClick={() => setIsDropdownOpen(false)} />
-                                        <div style={styles.dropdown}>
-                                            <button style={styles.dropdownItem} onClick={() => { setIsQrOpen(true); setIsDropdownOpen(false); }}>My QR Ticket</button>
-                                            <button style={styles.dropdownItem} onClick={handleCopyProfileLink}>Copy Profile Link</button>
-                                            <Link to="/settings" style={{...styles.dropdownItem, textDecoration: 'none', color: '#1F2937', display: 'block'}} onClick={() => setIsDropdownOpen(false)}>Settings</Link>
-                                            <button style={{...styles.dropdownItem, color: '#EF4444'}} onClick={() => { setIsDropdownOpen(false); logout(); }}>Log out</button>
-                                        </div>
-                                    </>
-                                )}
-                            </div>
+                                 {isDropdownOpen && (
+                                     <>
+                                         <div style={styles.mobileSheetBackdrop} onClick={() => setIsDropdownOpen(false)} />
+                                         <div style={styles.mobileBottomSheet}>
+                                             <div style={styles.mobileSheetHandle} />
+                                             <h3 style={styles.mobileSheetTitle}>Profile Options</h3>
+                                             <button style={styles.mobileSheetItem} onClick={() => { setIsQrOpen(true); setIsDropdownOpen(false); }}>My QR Ticket</button>
+                                             <button style={styles.mobileSheetItem} onClick={handleCopyProfileLink}>Copy Profile Link</button>
+                                             <Link to="/settings" style={styles.mobileSheetItemLink} onClick={() => setIsDropdownOpen(false)}>Settings</Link>
+                                             <button style={{...styles.mobileSheetItem, color: '#EF4444', borderBottom: 'none'}} onClick={() => { setIsDropdownOpen(false); logout(); }}>Log out</button>
+                                             <button style={styles.mobileSheetCancel} onClick={() => setIsDropdownOpen(false)}>Cancel</button>
+                                         </div>
+                                     </>
+                                 )}</div>
                         </>
                     ) : (
                         <>
@@ -862,6 +870,85 @@ const styles: { [key: string]: CSSProperties } = {
         fontSize: '12px',
         fontWeight: 'bold',
         border: '1px solid #E5E7EB',
+    },
+    mobileSheetBackdrop: {
+        position: 'fixed',
+        inset: 0,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        zIndex: 1000,
+        backdropFilter: 'blur(2px)',
+    },
+    mobileBottomSheet: {
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        backgroundColor: 'white',
+        borderTopLeftRadius: '20px',
+        borderTopRightRadius: '20px',
+        padding: '16px 20px 24px 20px',
+        zIndex: 1001,
+        display: 'flex',
+        flexDirection: 'column',
+        boxShadow: '0 -4px 16px rgba(0,0,0,0.15)',
+        animation: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+        maxWidth: '450px',
+        margin: '0 auto',
+    },
+    mobileSheetHandle: {
+        width: '40px',
+        height: '4px',
+        backgroundColor: '#E5E7EB',
+        borderRadius: '2px',
+        alignSelf: 'center',
+        marginBottom: '16px',
+    },
+    mobileSheetTitle: {
+        margin: '0 0 16px 0',
+        fontSize: '16px',
+        fontWeight: 'bold',
+        color: '#111827',
+        textAlign: 'center',
+    },
+    mobileSheetItem: {
+        padding: '14px 16px',
+        border: 'none',
+        backgroundColor: 'transparent',
+        textAlign: 'left',
+        fontSize: '15px',
+        fontWeight: '600',
+        color: '#374151',
+        cursor: 'pointer',
+        borderBottom: '1px solid #F3F4F6',
+        width: '100%',
+        boxSizing: 'border-box',
+    },
+    mobileSheetItemLink: {
+        padding: '14px 16px',
+        backgroundColor: 'transparent',
+        textAlign: 'left',
+        fontSize: '15px',
+        fontWeight: '600',
+        color: '#374151',
+        cursor: 'pointer',
+        borderBottom: '1px solid #F3F4F6',
+        display: 'block',
+        textDecoration: 'none',
+        width: '100%',
+        boxSizing: 'border-box',
+    },
+    mobileSheetCancel: {
+        marginTop: '12px',
+        padding: '14px 16px',
+        border: 'none',
+        borderRadius: '10px',
+        backgroundColor: '#F3F4F6',
+        color: '#4B5563',
+        fontSize: '15px',
+        fontWeight: 'bold',
+        cursor: 'pointer',
+        textAlign: 'center',
+        width: '100%',
     },
 };
 
