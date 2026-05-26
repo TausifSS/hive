@@ -651,6 +651,15 @@ async function createPost({ authorId, content, mediaUrl = '' }) {
   return await getPostById(id);
 }
 
+async function deletePost(postId) {
+  await dbQueryRun('DELETE FROM posts WHERE id = ?', [postId]);
+}
+
+async function updatePost(postId, content) {
+  await dbQueryRun('UPDATE posts SET content = ? WHERE id = ?', [content, postId]);
+  return await getPostById(postId);
+}
+
 async function togglePostLike(postId, userId) {
   const existing = await dbQueryGet('SELECT 1 FROM post_likes WHERE post_id = ? AND user_id = ?', [postId, userId]);
 
@@ -1328,6 +1337,8 @@ export const db = {
   getPostById,
   listPosts,
   createPost,
+  deletePost,
+  updatePost,
   togglePostLike,
   togglePostSave,
   addPostComment,

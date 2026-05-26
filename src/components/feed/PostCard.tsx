@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Heart, MessageSquare, Repeat, BookmarkPlus, X } from 'lucide-react';
+import { Heart, MessageSquare, Repeat, BookmarkPlus, X, MoreHorizontal } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { addPostComment, likePost, savePost } from '../../lib/api';
+import { addPostComment, likePost, savePost, deletePost, updatePost } from '../../lib/api';
 import type { Post } from '../../lib/api';
 
 const ActionButton = ({ icon, label, onClick }: { icon: React.ReactNode, label: string, onClick?: () => void }) => (
@@ -15,6 +15,7 @@ const ActionButton = ({ icon, label, onClick }: { icon: React.ReactNode, label: 
 interface PostCardProps {
     post: Post;
     onPostUpdated: (post: Post) => void;
+    onPostDeleted?: (postId: string) => void;
 }
 
 const formatTimestamp = (value: string) => {
@@ -26,16 +27,23 @@ const formatTimestamp = (value: string) => {
     return new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 };
 
-const PostCard = ({ post, onPostUpdated }: PostCardProps) => {
+const PostCard = ({ post, onPostUpdated, onPostDeleted }: PostCardProps) => {
     const { user } = useAuth();
     const [showComments, setShowComments] = useState(false);
     const [commentText, setCommentText] = useState('');
     const [error, setError] = useState('');
     const [statusText, setStatusText] = useState('');
     const [isSaving, setIsSaving] = useState(false);
+
+    // Edit and Delete states
+    const [isActionsDropdownOpen, setIsActionsDropdownOpen] = useState(false);
+    const [isEditing, setIsEditing] = useState(false);
+    const [editContent, setEditContent] = useState(post.content);
+
     const isLiked = Boolean(user && post.likes.includes(user.id));
     const isSaved = Boolean(user && post.savedBy.includes(user.id));
     const authorProfilePath = `/profile/${post.author?.id || post.authorId}`;
+    const isOwnPostOrAdmin = Boolean(user && (post.authorId === user.id || user.role === 'Admin'));
 
     const handleLike = async () => {
         setError('');
@@ -96,6 +104,47 @@ const PostCard = ({ post, onPostUpdated }: PostCardProps) => {
         }
     };
 
+    const handleStartEdit = () => {
+        setIsEditing(true);
+        setEditContent(post.content);
+        setIsActionsDropdownOpen(false);
+    };
+
+    const handleCancelEdit = () => {
+        setIsEditing(false);
+        setEditContent(post.content);
+    };
+
+    const handleSaveEdit = async () => {
+        const content = editContent.trim();
+        if (!content) return;
+        setError('');
+        setIsSaving(true);
+        try {
+            const response = await updatePost(post.id, content);
+            onPostUpdated(response.post);
+            setIsEditing(false);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Unable to update post');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleDelete = async () => {
+        setIsActionsDropdownOpen(false);
+        if (!window.confirm('Are you sure you want to delete this post?')) return;
+        setError('');
+        try {
+            await deletePost(post.id);
+            if (onPostDeleted) {
+                onPostDeleted(post.id);
+            }
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Unable to delete post');
+        }
+    };
+
     return (
         <>
             <div style={styles.card}>
@@ -111,9 +160,44 @@ const PostCard = ({ post, onPostUpdated }: PostCardProps) => {
                             <p style={styles.timestamp}>{formatTimestamp(post.createdAt)}</p>
                         </div>
                     </Link>
+                    {isOwnPostOrAdmin && (
+                        <div style={{ position: 'relative', marginLeft: 'auto' }}>
+                            <button
+                                type="button"
+                                onClick={() => setIsActionsDropdownOpen(!isActionsDropdownOpen)}
+                                style={styles.threeDotButton}
+                                title="Post Actions"
+                            >
+                                <MoreHorizontal size={20} />
+                            </button>
+                            {isActionsDropdownOpen && (
+                                <div style={styles.actionsDropdown}>
+                                    <button type="button" onClick={handleStartEdit} style={styles.dropdownBtn}>Edit</button>
+                                    <button type="button" onClick={handleDelete} style={{ ...styles.dropdownBtn, color: '#EF4444' }}>Delete</button>
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
 
-                <p style={styles.content}>{post.content}</p>
+                {isEditing ? (
+                    <div style={styles.editContainer}>
+                        <textarea
+                            value={editContent}
+                            onChange={(e) => setEditContent(e.target.value)}
+                            style={styles.editTextarea}
+                            placeholder="Edit your post..."
+                        />
+                        <div style={styles.editActions}>
+                            <button type="button" onClick={handleCancelEdit} style={styles.cancelEditBtn}>Cancel</button>
+                            <button type="button" onClick={handleSaveEdit} style={styles.saveEditBtn} disabled={isSaving}>
+                                {isSaving ? 'Saving...' : 'Save'}
+                            </button>
+                        </div>
+                    </div>
+                ) : (
+                    <p style={styles.content}>{post.content}</p>
+                )}
 
                 {post.mediaUrl && (
                     <div style={styles.mediaContainer}>
@@ -258,6 +342,86 @@ const styles: { [key: string]: React.CSSProperties } = {
     commentInput: { flexGrow: 1, border: '1px solid #E5E7EB', borderRadius: '20px', padding: '8px 12px', marginRight: '8px' },
     postCommentButton: { background: 'var(--brand-purple, #8B5CF6)', color: 'white', border: 'none', borderRadius: '8px', padding: '8px 16px', cursor: 'pointer' },
     disabledButton: { opacity: 0.65, cursor: 'not-allowed' },
+    threeDotButton: {
+        border: 'none',
+        background: 'none',
+        cursor: 'pointer',
+        padding: '6px',
+        borderRadius: '50%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: '#4B5563',
+        transition: 'background-color 0.2s',
+    },
+    actionsDropdown: {
+        position: 'absolute',
+        top: '32px',
+        right: 0,
+        backgroundColor: 'white',
+        border: '1px solid #E5E7EB',
+        borderRadius: '8px',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+        zIndex: 50,
+        minWidth: '120px',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+    },
+    dropdownBtn: {
+        padding: '10px 16px',
+        border: 'none',
+        backgroundColor: 'transparent',
+        textAlign: 'left',
+        fontSize: '14px',
+        cursor: 'pointer',
+        fontWeight: '600',
+        width: '100%',
+        color: '#374151',
+    },
+    editContainer: {
+        marginTop: '8px',
+        marginBottom: '12px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '8px',
+    },
+    editTextarea: {
+        width: '100%',
+        minHeight: '80px',
+        boxSizing: 'border-box',
+        border: '1px solid #D1D5DB',
+        borderRadius: '8px',
+        padding: '10px',
+        fontSize: '15px',
+        fontFamily: 'inherit',
+        resize: 'vertical',
+        outline: 'none',
+    },
+    editActions: {
+        display: 'flex',
+        justifyContent: 'flex-end',
+        gap: '8px',
+    },
+    cancelEditBtn: {
+        padding: '6px 12px',
+        backgroundColor: '#F3F4F6',
+        border: 'none',
+        borderRadius: '6px',
+        fontWeight: 'bold',
+        cursor: 'pointer',
+        fontSize: '13px',
+    },
+    saveEditBtn: {
+        padding: '6px 12px',
+        backgroundColor: 'var(--brand-purple)',
+        color: 'white',
+        border: 'none',
+        borderRadius: '6px',
+        fontWeight: 'bold',
+        cursor: 'pointer',
+        fontSize: '13px',
+    },
 };
 
 export default PostCard;

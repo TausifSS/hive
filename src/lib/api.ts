@@ -518,6 +518,22 @@ async function demoRequest<T>(path: string, options: RequestOptions = {}): Promi
         const user = requireDemoUser(db);
         const post = db.posts.find((candidate) => candidate.id === parts[2]);
         if (!post) throw new Error('Not found');
+
+        if (!parts[3]) {
+            if (method === 'DELETE') {
+                if (post.authorId !== user.id && user.role !== 'Admin') throw new Error('Forbidden');
+                db.posts = db.posts.filter((candidate) => candidate.id !== parts[2]);
+                writeDemoDb(db);
+                return finish({ ok: true } as T);
+            }
+            if (method === 'PATCH') {
+                if (post.authorId !== user.id) throw new Error('Forbidden');
+                post.content = String(body.content || '');
+                writeDemoDb(db);
+                return finish({ post: demoPost(db, post) } as T);
+            }
+        }
+
         if (parts[3] === 'like' && method === 'POST') {
             post.likes = post.likes.includes(user.id) ? post.likes.filter((id) => id !== user.id) : [...post.likes, user.id];
             return finish({ post: demoPost(db, post) } as T);
@@ -827,6 +843,17 @@ export const createPost = (body: { content: string; mediaUrl?: string }) =>
     apiRequest<{ post: Post }>('/api/posts', {
         method: 'POST',
         body,
+    });
+
+export const deletePost = (postId: string) =>
+    apiRequest<{ ok: boolean }>(`/api/posts/${postId}`, {
+        method: 'DELETE',
+    });
+
+export const updatePost = (postId: string, content: string) =>
+    apiRequest<{ post: Post }>(`/api/posts/${postId}`, {
+        method: 'PATCH',
+        body: { content },
     });
 
 export const likePost = (postId: string) =>

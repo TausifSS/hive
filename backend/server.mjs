@@ -768,6 +768,54 @@ async function handleRoute(req, res) {
     return;
   }
 
+  if (pathParts[0] === 'api' && pathParts[1] === 'posts' && pathParts[2] && !pathParts[3] && req.method === 'DELETE') {
+    const currentUser = await requireUser(req);
+    const post = await db.getPostById(pathParts[2]);
+    if (!currentUser) {
+      send(req, res, 401, { error: 'Authentication required' });
+      return;
+    }
+    if (!post) {
+      notFound(req, res);
+      return;
+    }
+    if (post.authorId !== currentUser.id && currentUser.role !== 'Admin') {
+      sendForbidden(req, res);
+      return;
+    }
+
+    await db.deletePost(post.id);
+    send(req, res, 200, { ok: true });
+    return;
+  }
+
+  if (pathParts[0] === 'api' && pathParts[1] === 'posts' && pathParts[2] && !pathParts[3] && req.method === 'PATCH') {
+    const currentUser = await requireUser(req);
+    const post = await db.getPostById(pathParts[2]);
+    if (!currentUser) {
+      send(req, res, 401, { error: 'Authentication required' });
+      return;
+    }
+    if (!post) {
+      notFound(req, res);
+      return;
+    }
+    if (post.authorId !== currentUser.id) {
+      sendForbidden(req, res);
+      return;
+    }
+
+    const body = await parseBody(req);
+    if (!body.content) {
+      send(req, res, 400, { error: 'content is required' });
+      return;
+    }
+
+    const updated = await db.updatePost(post.id, body.content);
+    send(req, res, 200, { post: updated });
+    return;
+  }
+
   if (pathParts[0] === 'api' && pathParts[1] === 'posts' && pathParts[3] === 'like' && req.method === 'POST') {
     const currentUser = await requireUser(req);
     const post = await db.getPostById(pathParts[2]);

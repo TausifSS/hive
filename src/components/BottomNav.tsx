@@ -56,7 +56,9 @@ const styles: { [key: string]: React.CSSProperties } = {
         alignItems: 'center',
         padding: '0 10px',
         boxShadow: '0 -4px 15px rgba(0,0,0,0.1)',
-        marginTop: 'auto'
+        marginTop: 'auto',
+        width: '100%',
+        boxSizing: 'border-box',
     },
     navItem: {
         display: 'flex',
@@ -64,18 +66,25 @@ const styles: { [key: string]: React.CSSProperties } = {
         alignItems: 'center',
         color: 'var(--text-muted)',
         cursor: 'pointer',
-        padding: '8px',
+        padding: '8px 4px',
         borderRadius: '12px',
         transition: 'all 0.2s ease-in-out',
         textDecoration: 'none',
+        flex: 1,
+        minWidth: 0,
     },
     activeItem: {
         color: 'var(--text-light)',
         backgroundColor: 'var(--secondary-dark)'
     },
     navLabel: {
-        fontSize: '12px',
+        fontSize: '10px',
         marginTop: '4px',
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        width: '100%',
+        textAlign: 'center',
     },
     aiButton: {
         width: '64px',

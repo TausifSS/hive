@@ -172,6 +172,10 @@ const PCProfilePage = () => {
     setUserPosts((current) => current.map((p) => p.id === updatedPost.id ? updatedPost : p));
   };
 
+  const handlePostDeleted = (postId: string) => {
+    setUserPosts((current) => current.filter((p) => p.id !== postId));
+  };
+
   const handleEventRegister = async (eventId: string) => {
     try {
       await registerForEvent(eventId);
@@ -288,7 +292,7 @@ const PCProfilePage = () => {
   return (
     <div style={styles.container}>
       <header style={styles.header}>
-        <div style={{ ...styles.coverPhoto, backgroundImage: `url(${profileUser.coverUrl || 'https://placehold.co/600x200/374151/E5E7EB?text=Cover+Photo'})` }}></div>
+        <div style={{ ...styles.coverPhoto, backgroundImage: `url("${profileUser.coverUrl || 'https://placehold.co/600x200/374151/E5E7EB?text=Cover+Photo'}")` }}></div>
         <div style={styles.profilePictureContainer}>
           <img
             src={profileUser.avatarUrl || 'https://placehold.co/128x128/EFEFEF/333?text=HV'}
@@ -371,7 +375,7 @@ const PCProfilePage = () => {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '640px', margin: '0 auto', textAlign: 'left' }}>
               {userPosts.map((post) => (
-                <PostCard key={post.id} post={post} onPostUpdated={handlePostUpdated} />
+                <PostCard key={post.id} post={post} onPostUpdated={handlePostUpdated} onPostDeleted={handlePostDeleted} />
               ))}
             </div>
           )
@@ -480,10 +484,21 @@ const PCProfilePage = () => {
             
             {/* Cover Image Selector */}
             <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', marginBottom: '6px', color: '#374151' }}>Cover Photo</label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <label style={{ fontSize: '14px', fontWeight: 'bold', color: '#374151' }}>Cover Photo</label>
+                {editForm.coverUrl && (
+                  <button 
+                    type="button" 
+                    onClick={() => setEditForm(prev => ({ ...prev, coverUrl: '' }))} 
+                    style={styles.removeImageBtn}
+                  >
+                    Remove Cover
+                  </button>
+                )}
+              </div>
               <div style={{ 
                 height: '120px', 
-                backgroundImage: `url(${editForm.coverUrl || 'https://placehold.co/600x200/374151/E5E7EB?text=Cover+Photo'})`,
+                backgroundImage: `url("${editForm.coverUrl || 'https://placehold.co/600x200/374151/E5E7EB?text=Cover+Photo'}")`,
                 backgroundSize: 'cover',
                 backgroundPosition: 'center',
                 borderRadius: '8px',
@@ -530,7 +545,7 @@ const PCProfilePage = () => {
                 width: '72px',
                 height: '72px',
                 borderRadius: '50%',
-                backgroundImage: `url(${editForm.avatarUrl || 'https://placehold.co/100x100/EFEFEF/333?text=HV'})`,
+                backgroundImage: `url("${editForm.avatarUrl || 'https://placehold.co/100x100/EFEFEF/333?text=HV'}")`,
                 backgroundSize: 'cover',
                 backgroundPosition: 'center',
                 position: 'relative',
@@ -569,7 +584,16 @@ const PCProfilePage = () => {
               </div>
               <div style={{ flex: 1 }}>
                 <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', marginBottom: '2px', color: '#374151' }}>Profile Picture</label>
-                <span style={{ fontSize: '12px', color: '#6B7280' }}>Click the circle to upload from device</span>
+                <span style={{ fontSize: '12px', color: '#6B7280', display: 'block', marginBottom: '4px' }}>Click the circle to upload from device</span>
+                {editForm.avatarUrl && (
+                  <button 
+                    type="button" 
+                    onClick={() => setEditForm(prev => ({ ...prev, avatarUrl: '' }))} 
+                    style={styles.removeImageBtn}
+                  >
+                    Remove Photo
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1090,6 +1114,16 @@ const styles: { [key: string]: CSSProperties } = {
     borderRadius: '12px',
     color: '#DC2626',
     textAlign: 'center',
+  },
+  removeImageBtn: {
+    border: 'none',
+    background: 'none',
+    color: '#EF4444',
+    fontSize: '12px',
+    fontWeight: 'bold',
+    cursor: 'pointer',
+    padding: '2px 6px',
+    borderRadius: '4px',
   },
 };
 

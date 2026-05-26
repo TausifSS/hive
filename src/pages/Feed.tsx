@@ -50,6 +50,10 @@ const Feed = () => {
         setPosts((currentPosts) => currentPosts.map((item) => item.id === post.id ? post : item));
     };
 
+    const handlePostDeleted = (postId: string) => {
+        setPosts((currentPosts) => currentPosts.filter((item) => item.id !== postId));
+    };
+
     return (
         <div style={styles.feedContainer}>
             <TopStoryCard />
@@ -70,7 +74,7 @@ const Feed = () => {
                 <div style={styles.messageBox}>No posts yet. Create the first post for HIVE.</div>
             ) : (
                 posts.map((post) => (
-                    <PostCard key={post.id} post={post} onPostUpdated={handlePostUpdated} />
+                    <PostCard key={post.id} post={post} onPostUpdated={handlePostUpdated} onPostDeleted={handlePostDeleted} />
                 ))
             )}
         </div>

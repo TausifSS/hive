@@ -50,6 +50,8 @@ const styles: { [key: string]: React.CSSProperties } = {
         justifyContent: 'space-between',
         padding: '0 16px',
         boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+        width: '100%',
+        boxSizing: 'border-box',
     },
     logoContainer: {
         display: 'flex',
