@@ -71,6 +71,7 @@ const LeaderboardPage = () => {
                             rank={leaderboardUser.rank}
                             name={leaderboardUser.name}
                             points={leaderboardUser.points || 0}
+                            avatarUrl={leaderboardUser.avatarUrl}
                             isCurrentUser={leaderboardUser.id === user?.id}
                         />
                     ))

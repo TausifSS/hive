@@ -281,7 +281,27 @@ async function userWithConnections(user) {
   const followingRows = await dbQueryAll('SELECT following_id FROM follows WHERE follower_id = ? ORDER BY created_at DESC', [user.id]);
   const following = followingRows.map((row) => row.following_id);
 
-  return { ...user, followers, following };
+  const postCountRow = await dbQueryGet('SELECT COUNT(*) AS count FROM posts WHERE author_id = ?', [user.id]);
+  const postCount = Number(postCountRow?.count || 0);
+
+  const regCountRow = await dbQueryGet('SELECT COUNT(*) AS count FROM event_registrations WHERE user_id = ?', [user.id]);
+  const regCount = Number(regCountRow?.count || 0);
+
+  const msgCountRow = await dbQueryGet('SELECT COUNT(*) AS count FROM messages WHERE sender_id = ?', [user.id]);
+  const msgCount = Number(msgCountRow?.count || 0);
+
+  const badges = [];
+  if (regCount >= 5) badges.push({ id: 'event-explorer', name: 'Event Explorer', icon: '📅' });
+  else if (regCount >= 1) badges.push({ id: 'early-joiner', name: 'Early Joiner', icon: '🌟' });
+
+  if (postCount >= 15) badges.push({ id: 'top-contributor', name: 'Top Contributor', icon: '🔥' });
+  else if (postCount >= 5) badges.push({ id: 'rising-writer', name: 'Rising Writer', icon: '✍️' });
+
+  if (msgCount >= 20) badges.push({ id: 'social-butterfly', name: 'Social Butterfly', icon: '🦋' });
+
+  if ((user.points || 0) >= 100) badges.push({ id: 'academic-elite', name: 'Academic Elite', icon: '🎓' });
+
+  return { ...user, followers, following, badges };
 }
 
 async function camelEvent(row) {
@@ -791,6 +811,27 @@ async function registerForEvent(eventId, userId) {
   };
 }
 
+async function verifyAttendance(eventId, userId) {
+  const event = await getEventById(eventId);
+  const user = await getUserById(userId);
+  if (!event || !user) return null;
+
+  const isAlreadyRegistered = event.registeredUserIds.includes(user.id);
+  if (!isAlreadyRegistered) {
+    await dbQueryRun('INSERT INTO event_registrations (event_id, user_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING', [
+      eventId,
+      user.id,
+      new Date().toISOString()
+    ]);
+    await dbQueryRun('UPDATE users SET points = points + ? WHERE id = ?', [event.points, user.id]);
+  }
+
+  return {
+    event: await getEventById(eventId),
+    user: await getUserById(user.id)
+  };
+}
+
 async function listLeaderboard() {
   const users = await listUsers();
   return users.map((user, index) => ({
@@ -815,6 +856,7 @@ async function getConversation(conversationId) {
     id: message.id,
     senderId: message.sender_id,
     content: message.content,
+    mediaUrl: message.media_url || '',
     createdAt: message.created_at,
   }));
 
@@ -861,19 +903,21 @@ async function listConversationsForUser(userId) {
   return results;
 }
 
-async function addConversationMessage(conversationId, senderId, content) {
+async function addConversationMessage(conversationId, senderId, content, mediaUrl = '') {
   const message = {
     id: randomUUID(),
     senderId,
     content,
+    mediaUrl,
     createdAt: new Date().toISOString(),
   };
 
-  await dbQueryRun('INSERT INTO messages (id, conversation_id, sender_id, content, created_at) VALUES (?, ?, ?, ?, ?)', [
+  await dbQueryRun('INSERT INTO messages (id, conversation_id, sender_id, content, media_url, created_at) VALUES (?, ?, ?, ?, ?, ?)', [
     message.id,
     conversationId,
     senderId,
     content,
+    mediaUrl,
     message.createdAt
   ]);
   await dbQueryRun('UPDATE conversations SET updated_at = ? WHERE id = ?', [message.createdAt, conversationId]);
@@ -919,6 +963,7 @@ async function listChannelMessages(channelId) {
       channelId: message.channel_id,
       senderId: message.sender_id,
       content: message.content,
+      mediaUrl: message.media_url || '',
       createdAt: message.created_at,
       author: publicUser(await getUserById(message.sender_id)),
     });
@@ -926,7 +971,7 @@ async function listChannelMessages(channelId) {
   return results;
 }
 
-async function addChannelMessage(channelId, senderId, content) {
+async function addChannelMessage(channelId, senderId, content, mediaUrl = '') {
   const exists = await channelExists(channelId);
   if (!exists) return { error: 'not-found' };
 
@@ -935,16 +980,18 @@ async function addChannelMessage(channelId, senderId, content) {
     channelId,
     senderId,
     content: String(content || '').trim().slice(0, 1000),
+    mediaUrl,
     createdAt: new Date().toISOString(),
   };
 
-  if (!message.content) return { error: 'content-required' };
+  if (!message.content && !mediaUrl) return { error: 'content-required' };
 
-  await dbQueryRun('INSERT INTO channel_messages (id, channel_id, sender_id, content, created_at) VALUES (?, ?, ?, ?, ?)', [
+  await dbQueryRun('INSERT INTO channel_messages (id, channel_id, sender_id, content, media_url, created_at) VALUES (?, ?, ?, ?, ?, ?)', [
     message.id,
     channelId,
     senderId,
     message.content,
+    mediaUrl,
     message.createdAt
   ]);
 
@@ -1011,6 +1058,46 @@ async function createTopStory({ title, summary, body, category = 'Official', aut
   ]);
 
   return await getTopStoryById(id);
+}
+
+async function createPostReport(postId, reportedBy, reason) {
+  const id = randomUUID();
+  await dbQueryRun(`
+    INSERT INTO post_reports (id, post_id, reported_by, reason, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `, [id, postId, reportedBy, reason, new Date().toISOString()]);
+  return { id, postId, reportedBy, reason };
+}
+
+async function listPostReports() {
+  const rows = await dbQueryAll(`
+    SELECT r.*, p.content AS post_content, p.author_id AS post_author_id, u.name AS reporter_name, u.handle AS reporter_handle
+    FROM post_reports r
+    JOIN posts p ON r.post_id = p.id
+    JOIN users u ON r.reported_by = u.id
+    ORDER BY r.created_at DESC
+  `);
+  
+  const results = [];
+  for (const row of rows) {
+    const postAuthor = await getUserById(row.post_author_id);
+    results.push({
+      id: row.id,
+      postId: row.post_id,
+      postContent: row.post_content,
+      postAuthor: publicUser(postAuthor),
+      reportedBy: row.reported_by,
+      reporterName: row.reporter_name,
+      reporterHandle: row.reporter_handle,
+      reason: row.reason,
+      createdAt: row.created_at
+    });
+  }
+  return results;
+}
+
+async function deletePostReport(reportId) {
+  await dbQueryRun('DELETE FROM post_reports WHERE id = ?', [reportId]);
 }
 
 async function createSchema() {
@@ -1168,6 +1255,7 @@ async function createSchema() {
       conversation_id TEXT NOT NULL,
       sender_id TEXT NOT NULL,
       content TEXT NOT NULL,
+      media_url TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
       FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE
@@ -1178,6 +1266,7 @@ async function createSchema() {
       channel_id TEXT NOT NULL,
       sender_id TEXT NOT NULL,
       content TEXT NOT NULL,
+      media_url TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE
     );
@@ -1220,6 +1309,24 @@ async function runMigrations() {
   if (!(await columnExists('users', 'blocked_at'))) {
     await dbQueryExec('ALTER TABLE users ADD COLUMN blocked_at TEXT;');
   }
+  if (!(await columnExists('messages', 'media_url'))) {
+    await dbQueryExec('ALTER TABLE messages ADD COLUMN media_url TEXT DEFAULT "";');
+  }
+  if (!(await columnExists('channel_messages', 'media_url'))) {
+    await dbQueryExec('ALTER TABLE channel_messages ADD COLUMN media_url TEXT DEFAULT "";');
+  }
+
+  await dbQueryExec(`
+    CREATE TABLE IF NOT EXISTS post_reports (
+      id TEXT PRIMARY KEY,
+      post_id TEXT NOT NULL,
+      reported_by TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
+      FOREIGN KEY (reported_by) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
 }
 
 async function removeLegacyDemoData() {
@@ -1358,6 +1465,10 @@ export const db = {
   listTopStories,
   getTopStoryById,
   createTopStory,
+  createPostReport,
+  listPostReports,
+  deletePostReport,
+  verifyAttendance,
 };
 
 export { DB_FILE, isPostgres };

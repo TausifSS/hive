@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { CheckCircle2, Shield, Trash2, UserX, UserCheck, XCircle } from 'lucide-react';
-import { deleteAdminUser, getAdminUsers, getClubApplications, reviewClubApplication, setAdminUserBlocked, updateAdminUserRole } from '../lib/api';
-import type { ClubApplication, User, UserRole } from '../lib/api';
+import { deleteAdminUser, getAdminUsers, getClubApplications, reviewClubApplication, setAdminUserBlocked, updateAdminUserRole, getAdminReports, deleteAdminReport, verifyEventAttendance, getEvents, deletePost } from '../lib/api';
+import type { ClubApplication, User, UserRole, HiveEvent } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 
 const roleLabels: Record<UserRole, string> = {
@@ -15,9 +15,18 @@ const AdminDashboardPage = () => {
     const { user: currentUser, refreshUser } = useAuth();
     const [users, setUsers] = useState<User[]>([]);
     const [applications, setApplications] = useState<ClubApplication[]>([]);
-    const [activeTab, setActiveTab] = useState<'students' | 'clubs'>('students');
+    const [activeTab, setActiveTab] = useState<'students' | 'clubs' | 'reports' | 'attendance'>('students');
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState('');
+    const [reports, setReports] = useState<any[]>([]);
+    const [events, setEvents] = useState<HiveEvent[]>([]);
+
+    // Attendance desk states
+    const [selectedEventId, setSelectedEventId] = useState('');
+    const [attendanceStudentId, setAttendanceStudentId] = useState('');
+    const [isVerifying, setIsVerifying] = useState(false);
+    const [attendanceMessage, setAttendanceMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
     const studentUsers = users.filter((user) => user.role === 'student');
     const clubUsers = users.filter((user) => user.role !== 'student');
     const visibleUsers = activeTab === 'students' ? studentUsers : clubUsers;
@@ -31,10 +40,66 @@ const AdminDashboardPage = () => {
             setUsers(response.users);
             const applicationResponse = await getClubApplications();
             setApplications(applicationResponse.applications);
+            const reportsRes = await getAdminReports();
+            setReports(reportsRes.reports);
+            const eventsRes = await getEvents();
+            setEvents(eventsRes.events);
         } catch (adminError) {
             setError(adminError instanceof Error ? adminError.message : 'Unable to load users');
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    const handleDismissReport = async (reportId: string) => {
+        setError('');
+        try {
+            await deleteAdminReport(reportId);
+            setReports((prev) => prev.filter((r) => r.id !== reportId));
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Unable to dismiss report');
+        }
+    };
+
+    const handleDeleteReportedPost = async (reportId: string, postId: string) => {
+        if (!window.confirm("Are you sure you want to delete this post? This will delete the post from HIVE and dismiss the report.")) return;
+        setError('');
+        try {
+            await deletePost(postId);
+            await deleteAdminReport(reportId);
+            setReports((prev) => prev.filter((r) => r.id !== reportId));
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Unable to delete post');
+        }
+    };
+
+    const handleVerifyAttendance = async () => {
+        if (!selectedEventId || !attendanceStudentId.trim()) return;
+        setIsVerifying(true);
+        setAttendanceMessage(null);
+        try {
+            const res = await verifyEventAttendance(selectedEventId, attendanceStudentId.trim());
+            if (res.success) {
+                setAttendanceMessage({
+                    type: 'success',
+                    text: `Successfully verified attendance! Credited ${res.user.name} (${res.user.id}) with points.`
+                });
+                setAttendanceStudentId('');
+            }
+        } catch (err) {
+            setAttendanceMessage({
+                type: 'error',
+                text: err instanceof Error ? err.message : 'Failed to verify attendance'
+            });
+        } finally {
+            setIsVerifying(false);
+        }
+    };
+
+    const handleSimulateScan = () => {
+        const simulatedId = prompt("Scan Student QR ticket code (Simulated check-in). Enter Student ID/Handle:", "yash");
+        if (simulatedId) {
+            setAttendanceStudentId(simulatedId);
         }
     };
 
@@ -125,12 +190,178 @@ const AdminDashboardPage = () => {
                         style={{ ...styles.segmentButton, ...(activeTab === 'clubs' ? styles.activeSegment : {}) }}
                         onClick={() => setActiveTab('clubs')}
                     >
-                        Club
+                        Clubs
                         <span style={styles.segmentCount}>{clubUsers.length}</span>
+                    </button>
+                    <button
+                        style={{ ...styles.segmentButton, ...(activeTab === 'reports' ? styles.activeSegment : {}) }}
+                        onClick={() => setActiveTab('reports')}
+                    >
+                        Flags
+                        <span style={styles.segmentCount}>{reports.length}</span>
+                    </button>
+                    <button
+                        style={{ ...styles.segmentButton, ...(activeTab === 'attendance' ? styles.activeSegment : {}) }}
+                        onClick={() => setActiveTab('attendance')}
+                    >
+                        Verify Check-in
                     </button>
                 </div>
                 {isLoading ? (
-                    <div style={styles.stateBox}>Loading users...</div>
+                    <div style={styles.stateBox}>Loading details...</div>
+                ) : activeTab === 'reports' ? (
+                    <div style={{ padding: '16px' }}>
+                        <h2 style={{ fontSize: '18px', fontWeight: 'bold', margin: '0 0 16px 0', color: '#111827' }}>Flagged Posts for Moderation</h2>
+                        {reports.length === 0 ? (
+                            <p style={{ color: '#6B7280', margin: '20px 0', textAlign: 'center' }}>No flagged reports found.</p>
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                                {reports.map((report) => (
+                                    <div key={report.id} style={{ display: 'flex', flexDirection: 'column', border: '1px solid #E5E7EB', borderRadius: '12px', padding: '16px', backgroundColor: '#F9FAFB' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                            <div>
+                                                <span style={{ fontWeight: 'bold', color: '#111827', fontSize: '14px' }}>Reason: "{report.reason}"</span>
+                                                <span style={{ fontSize: '12px', color: '#6B7280', display: 'block', marginTop: '2px' }}>
+                                                    Reported by @{report.reporterHandle || report.reportedBy} on {new Date(report.createdAt).toLocaleDateString()}
+                                                </span>
+                                            </div>
+                                            <div style={{ display: 'flex', gap: '8px' }}>
+                                                <button 
+                                                    style={{ border: 'none', borderRadius: '8px', padding: '6px 12px', backgroundColor: '#F3F4F6', color: '#374151', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}
+                                                    onClick={() => handleDismissReport(report.id)}
+                                                >
+                                                    Dismiss
+                                                </button>
+                                                <button 
+                                                    style={{ border: 'none', borderRadius: '8px', padding: '6px 12px', backgroundColor: '#FEF2F2', color: '#DC2626', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}
+                                                    onClick={() => handleDeleteReportedPost(report.id, report.postId)}
+                                                >
+                                                    Delete Post
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div style={{ padding: '12px', backgroundColor: 'white', borderRadius: '8px', borderLeft: '3px solid #8B5CF6', fontSize: '14px', color: '#374151', textAlign: 'left' }}>
+                                            <div style={{ fontWeight: 'bold', fontSize: '12px', color: '#6B7280', marginBottom: '4px' }}>
+                                                Original Author: {report.postAuthor?.name || 'User'} (@{report.postAuthor?.handle || report.postAuthor?.id})
+                                            </div>
+                                            {report.postContent || '[Post content missing]'}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                ) : activeTab === 'attendance' ? (
+                    <div style={{ padding: '20px' }}>
+                        <h2 style={{ fontSize: '18px', fontWeight: 'bold', margin: '0 0 8px 0', color: '#111827' }}>Event Attendance Check-in Desk</h2>
+                        <p style={{ fontSize: '14px', color: '#6B7280', marginBottom: '20px' }}>
+                            Simulate scanner check-in tickets or select a campus event and enter a student ID manually.
+                        </p>
+                        
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '480px', textAlign: 'left' }}>
+                            <div>
+                                <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '6px', color: '#374151' }}>Select Campus Event</label>
+                                <select 
+                                    value={selectedEventId} 
+                                    onChange={(e) => setSelectedEventId(e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        boxSizing: 'border-box',
+                                        border: '1px solid #D1D5DB',
+                                        borderRadius: '8px',
+                                        padding: '10px 12px',
+                                        fontSize: '14px',
+                                        outline: 'none',
+                                        backgroundColor: 'white',
+                                        height: '42px'
+                                    }}
+                                >
+                                    <option value="">-- Choose an Event --</option>
+                                    {events.map((event) => (
+                                        <option key={event.id} value={event.id}>{event.title}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            
+                            <div>
+                                <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '6px', color: '#374151' }}>Student ID or Handle</label>
+                                <input 
+                                    type="text" 
+                                    placeholder="e.g. yash12" 
+                                    value={attendanceStudentId}
+                                    onChange={(e) => setAttendanceStudentId(e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        boxSizing: 'border-box',
+                                        border: '1px solid #D1D5DB',
+                                        borderRadius: '8px',
+                                        padding: '10px 12px',
+                                        fontSize: '14px',
+                                        outline: 'none',
+                                        backgroundColor: 'white',
+                                        height: '42px'
+                                    }}
+                                />
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
+                                <button 
+                                    onClick={handleVerifyAttendance} 
+                                    disabled={isVerifying || !selectedEventId || !attendanceStudentId.trim()}
+                                    style={{
+                                        flex: 2,
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        padding: '0 20px',
+                                        backgroundColor: 'var(--brand-purple)',
+                                        color: 'white',
+                                        fontWeight: 'bold',
+                                        cursor: 'pointer',
+                                        fontSize: '14px',
+                                        height: '42px',
+                                        opacity: (isVerifying || !selectedEventId || !attendanceStudentId.trim()) ? 0.6 : 1
+                                    }}
+                                >
+                                    {isVerifying ? 'Crediting...' : 'Verify & Credit Points'}
+                                </button>
+                                <button 
+                                    onClick={handleSimulateScan}
+                                    disabled={isVerifying || !selectedEventId}
+                                    style={{
+                                        flex: 1,
+                                        border: '1px solid #D1D5DB',
+                                        borderRadius: '8px',
+                                        padding: '0 16px',
+                                        backgroundColor: '#F9FAFB',
+                                        color: '#374151',
+                                        fontWeight: 'bold',
+                                        cursor: 'pointer',
+                                        fontSize: '14px',
+                                        height: '42px',
+                                        opacity: (isVerifying || !selectedEventId) ? 0.6 : 1
+                                    }}
+                                >
+                                    📸 Scan Ticket
+                                </button>
+                            </div>
+                        </div>
+
+                        {attendanceMessage && (
+                            <div style={{ 
+                                marginTop: '20px', 
+                                padding: '12px 16px', 
+                                borderRadius: '8px', 
+                                backgroundColor: attendanceMessage.type === 'success' ? '#ECFDF5' : '#FEF2F2',
+                                color: attendanceMessage.type === 'success' ? '#065F46' : '#991B1B',
+                                border: `1px solid ${attendanceMessage.type === 'success' ? '#A7F3D0' : '#FCA5A5'}`,
+                                fontSize: '14px',
+                                fontWeight: '600',
+                                maxWidth: '480px'
+                            }}>
+                                {attendanceMessage.text}
+                            </div>
+                        )}
+                    </div>
                 ) : visibleUsers.length === 0 ? (
                     <>
                         {activeTab === 'clubs' && <ClubApplications applications={applications} onReview={handleApplicationReview} />}

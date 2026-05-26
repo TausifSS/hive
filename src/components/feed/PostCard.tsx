@@ -2,8 +2,32 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Heart, MessageSquare, Repeat, BookmarkPlus, X, MoreHorizontal } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { addPostComment, likePost, savePost, deletePost, updatePost } from '../../lib/api';
+import { addPostComment, likePost, savePost, deletePost, updatePost, reportPost } from '../../lib/api';
 import type { Post } from '../../lib/api';
+
+const parseContent = (text: string) => {
+    if (!text) return '';
+    const parts = text.split(/([#@][\w-]+)/g);
+    return parts.map((part, index) => {
+        if (part.startsWith('#')) {
+            const tag = part.slice(1);
+            return (
+                <Link key={index} to={`/?tag=${tag}`} style={{ color: 'var(--brand-purple, #8B5CF6)', fontWeight: '600', textDecoration: 'none' }}>
+                    {part}
+                </Link>
+            );
+        }
+        if (part.startsWith('@')) {
+            const handle = part.slice(1);
+            return (
+                <Link key={index} to={`/profile/${handle}`} style={{ color: 'var(--brand-purple, #8B5CF6)', fontWeight: '600', textDecoration: 'none' }}>
+                    {part}
+                </Link>
+            );
+        }
+        return part;
+    });
+};
 
 const ActionButton = ({ icon, label, onClick }: { icon: React.ReactNode, label: string, onClick?: () => void }) => (
     <button type="button" style={styles.actionButton} onClick={onClick}>
@@ -43,7 +67,6 @@ const PostCard = ({ post, onPostUpdated, onPostDeleted }: PostCardProps) => {
     const isLiked = Boolean(user && post.likes.includes(user.id));
     const isSaved = Boolean(user && post.savedBy.includes(user.id));
     const authorProfilePath = `/profile/${post.author?.id || post.authorId}`;
-    const isOwnPostOrAdmin = Boolean(user && (post.authorId === user.id || user.role === 'Admin'));
 
     const handleLike = async () => {
         setError('');
@@ -145,6 +168,25 @@ const PostCard = ({ post, onPostUpdated, onPostDeleted }: PostCardProps) => {
         }
     };
 
+    const handleReport = async () => {
+        setIsActionsDropdownOpen(false);
+        const reason = window.prompt('Enter reason for reporting this post:');
+        if (reason === null) return;
+        const trimmedReason = reason.trim();
+        if (!trimmedReason) {
+            alert('Reason is required to report a post.');
+            return;
+        }
+        setError('');
+        setStatusText('');
+        try {
+            await reportPost(post.id, trimmedReason);
+            setStatusText('Post reported successfully.');
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Unable to report post');
+        }
+    };
+
     return (
         <>
             <div style={styles.card}>
@@ -160,7 +202,7 @@ const PostCard = ({ post, onPostUpdated, onPostDeleted }: PostCardProps) => {
                             <p style={styles.timestamp}>{formatTimestamp(post.createdAt)}</p>
                         </div>
                     </Link>
-                    {isOwnPostOrAdmin && (
+                    {user && (
                         <div style={{ position: 'relative', marginLeft: 'auto' }}>
                             <button
                                 type="button"
@@ -172,8 +214,15 @@ const PostCard = ({ post, onPostUpdated, onPostDeleted }: PostCardProps) => {
                             </button>
                             {isActionsDropdownOpen && (
                                 <div style={styles.actionsDropdown}>
-                                    <button type="button" onClick={handleStartEdit} style={styles.dropdownBtn}>Edit</button>
-                                    <button type="button" onClick={handleDelete} style={{ ...styles.dropdownBtn, color: '#EF4444' }}>Delete</button>
+                                    {post.authorId === user.id && (
+                                        <button type="button" onClick={handleStartEdit} style={styles.dropdownBtn}>Edit</button>
+                                    )}
+                                    {(post.authorId === user.id || user.role === 'Admin') && (
+                                        <button type="button" onClick={handleDelete} style={{ ...styles.dropdownBtn, color: '#EF4444' }}>Delete</button>
+                                    )}
+                                    {post.authorId !== user.id && (
+                                        <button type="button" onClick={handleReport} style={{ ...styles.dropdownBtn, color: '#EF4444' }}>Report</button>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -196,7 +245,7 @@ const PostCard = ({ post, onPostUpdated, onPostDeleted }: PostCardProps) => {
                         </div>
                     </div>
                 ) : (
-                    <p style={styles.content}>{post.content}</p>
+                    <p style={styles.content}>{parseContent(post.content)}</p>
                 )}
 
                 {post.mediaUrl && (

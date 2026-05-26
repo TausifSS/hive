@@ -3,13 +3,50 @@ import type { CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import { CalendarPlus, MessageSquare, Newspaper, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { getEvents } from '../lib/api';
+import { getEvents, verifyEventAttendance } from '../lib/api';
 import type { HiveEvent } from '../lib/api';
 
 const ClubPanelPage = () => {
     const { user } = useAuth();
     const [events, setEvents] = useState<HiveEvent[]>([]);
     const [error, setError] = useState('');
+
+    const [selectedEventId, setSelectedEventId] = useState('');
+    const [attendanceStudentId, setAttendanceStudentId] = useState('');
+    const [isVerifying, setIsVerifying] = useState(false);
+    const [attendanceMessage, setAttendanceMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+    const handleVerifyAttendance = async () => {
+        if (!selectedEventId || !attendanceStudentId.trim()) return;
+        setIsVerifying(true);
+        setAttendanceMessage(null);
+        try {
+            const res = await verifyEventAttendance(selectedEventId, attendanceStudentId.trim());
+            if (res.success) {
+                setAttendanceMessage({
+                    type: 'success',
+                    text: `Successfully verified attendance! Credited ${res.user.name} (${res.user.id}) with points.`
+                });
+                setAttendanceStudentId('');
+                const response = await getEvents();
+                setEvents(response.events.filter((event) => event.organizerId === user?.id));
+            }
+        } catch (err) {
+            setAttendanceMessage({
+                type: 'error',
+                text: err instanceof Error ? err.message : 'Failed to verify attendance'
+            });
+        } finally {
+            setIsVerifying(false);
+        }
+    };
+
+    const handleSimulateScan = () => {
+        const simulatedId = prompt("Scan Student QR ticket code (Simulated check-in). Enter Student ID/Handle:", user?.id || "yash");
+        if (simulatedId) {
+            setAttendanceStudentId(simulatedId);
+        }
+    };
 
     useEffect(() => {
         const load = async () => {
@@ -72,6 +109,66 @@ const ClubPanelPage = () => {
                             <span>{event.registeredCount}/{event.capacity}</span>
                         </Link>
                     ))
+                )}
+            </section>
+
+            <section style={{ ...styles.panel, marginTop: '20px' }}>
+                <h2 style={styles.panelTitle}>Scan/Verify Event Attendance</h2>
+                <p style={{ fontSize: '14px', color: '#6B7280', marginBottom: '16px' }}>
+                    Verify a student's check-in QR ticket or manual ID to award event points.
+                </p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'flex-end' }}>
+                    <div style={{ flex: 1, minWidth: '200px' }}>
+                        <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '6px', color: '#374151' }}>Select Event</label>
+                        <select 
+                            value={selectedEventId} 
+                            onChange={(e) => setSelectedEventId(e.target.value)}
+                            style={styles.select}
+                        >
+                            <option value="">-- Choose an Event --</option>
+                            {events.map((event) => (
+                                <option key={event.id} value={event.id}>{event.title}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div style={{ flex: 1, minWidth: '200px' }}>
+                        <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '6px', color: '#374151' }}>Student ID or Handle</label>
+                        <input 
+                            type="text" 
+                            placeholder="e.g. yash12" 
+                            value={attendanceStudentId}
+                            onChange={(e) => setAttendanceStudentId(e.target.value)}
+                            style={styles.input}
+                        />
+                    </div>
+                    <button 
+                        onClick={handleVerifyAttendance} 
+                        disabled={isVerifying || !selectedEventId || !attendanceStudentId.trim()}
+                        style={{ ...styles.verifyButton, ...((isVerifying || !selectedEventId || !attendanceStudentId.trim()) ? styles.disabledButton : {}) }}
+                    >
+                        {isVerifying ? 'Verifying...' : 'Verify & Credit Points'}
+                    </button>
+                    <button 
+                        onClick={handleSimulateScan}
+                        disabled={isVerifying || !selectedEventId}
+                        style={{ ...styles.scanButton, ...((isVerifying || !selectedEventId) ? styles.disabledButton : {}) }}
+                    >
+                        📸 Simulate QR Scan
+                    </button>
+                </div>
+                {attendanceMessage && (
+                    <div style={{ 
+                        marginTop: '16px', 
+                        padding: '12px 16px', 
+                        borderRadius: '8px', 
+                        backgroundColor: attendanceMessage.type === 'success' ? '#ECFDF5' : '#FEF2F2',
+                        color: attendanceMessage.type === 'success' ? '#065F46' : '#991B1B',
+                        border: `1px solid ${attendanceMessage.type === 'success' ? '#A7F3D0' : '#FCA5A5'}`,
+                        fontSize: '14px',
+                        fontWeight: '600'
+                    }}>
+                        {attendanceMessage.text}
+                    </div>
                 )}
             </section>
         </div>
@@ -167,6 +264,56 @@ const styles: { [key: string]: CSSProperties } = {
         padding: '12px',
         marginBottom: '16px',
     },
+    select: {
+        width: '100%',
+        boxSizing: 'border-box',
+        border: '1px solid #D1D5DB',
+        borderRadius: '8px',
+        padding: '10px 12px',
+        fontSize: '14px',
+        outline: 'none',
+        backgroundColor: 'white',
+        height: '42px'
+    },
+    input: {
+        width: '100%',
+        boxSizing: 'border-box',
+        border: '1px solid #D1D5DB',
+        borderRadius: '8px',
+        padding: '10px 12px',
+        fontSize: '14px',
+        outline: 'none',
+        backgroundColor: 'white',
+        height: '42px'
+    },
+    verifyButton: {
+        border: 'none',
+        borderRadius: '8px',
+        padding: '0 20px',
+        backgroundColor: 'var(--brand-purple)',
+        color: 'white',
+        fontWeight: 'bold',
+        cursor: 'pointer',
+        fontSize: '14px',
+        height: '42px',
+        whiteSpace: 'nowrap'
+    },
+    scanButton: {
+        border: '1px solid #D1D5DB',
+        borderRadius: '8px',
+        padding: '0 16px',
+        backgroundColor: '#F9FAFB',
+        color: '#374151',
+        fontWeight: 'bold',
+        cursor: 'pointer',
+        fontSize: '14px',
+        height: '42px',
+        whiteSpace: 'nowrap'
+    },
+    disabledButton: {
+        opacity: 0.6,
+        cursor: 'not-allowed'
+    }
 };
 
 export default ClubPanelPage;

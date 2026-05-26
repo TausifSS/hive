@@ -18,6 +18,7 @@ const ProfilePage = () => {
     const [isFollowing, setIsFollowing] = useState(false);
     const [activeTab, setActiveTab] = useState<'activity' | 'events'>('activity');
     const [isEditOpen, setIsEditOpen] = useState(false);
+    const [isQrOpen, setIsQrOpen] = useState(false);
     const [editForm, setEditForm] = useState({ name: '', bio: '', avatarUrl: '', coverUrl: '' });
     
     // Dropdown state for three-dot menu
@@ -31,6 +32,7 @@ const ProfilePage = () => {
     // Followers/following modal state
     const [allUsers, setAllUsers] = useState<User[]>([]);
     const [connectionsModal, setConnectionsModal] = useState<{ open: boolean; type: 'followers' | 'following' }>({ open: false, type: 'followers' });
+    const [isRankOne, setIsRankOne] = useState(false);
 
     const loadProfileData = async () => {
         if (!targetUserId) {
@@ -57,6 +59,7 @@ const ProfilePage = () => {
             setUserPosts(postsRes.posts.filter((p) => p.authorId === targetUserId));
             setRegisteredEvents(eventsRes.events.filter((e) => e.registeredUserIds.includes(targetUserId)));
             setAllUsers(leaderRes.users);
+            setIsRankOne(leaderRes.users[0]?.id === targetUserId);
         } catch (profileError) {
             setError(profileError instanceof Error ? profileError.message : 'Unable to load profile');
         } finally {
@@ -197,7 +200,10 @@ const ProfilePage = () => {
         <div style={styles.container}>
             <header style={styles.header}>
                 <div style={{ ...styles.coverPhoto, backgroundImage: `url("${profileUser.coverUrl || 'https://placehold.co/600x200/374151/E5E7EB?text=Cover+Photo'}")` }}></div>
-                <div style={styles.profilePictureContainer}>
+                <div style={{
+                    ...styles.profilePictureContainer,
+                    ...(isRankOne ? { border: '4px solid var(--trophy-gold)', boxShadow: '0 0 15px rgba(255, 215, 0, 0.6)' } : {})
+                }}>
                     <img
                         src={profileUser.avatarUrl || 'https://placehold.co/100x100/EFEFEF/333?text=HV'}
                         alt={profileUser.name}
@@ -211,6 +217,16 @@ const ProfilePage = () => {
                     <h1 style={styles.name}>{profileUser.name}</h1>
                     <span style={styles.handle}>@{profileUser.handle || profileUser.id}</span>
                 </div>
+                {profileUser.badges && profileUser.badges.length > 0 && (
+                    <div style={styles.badgeContainer}>
+                        {profileUser.badges.map((badge) => (
+                            <span key={badge.id} style={styles.badgePill} title={badge.name}>
+                                <span style={{ marginRight: '4px' }}>{badge.icon}</span>
+                                {badge.name}
+                            </span>
+                        ))}
+                    </div>
+                )}
                 <p style={styles.bio}>{profileUser.bio || 'HIVE community member'}</p>
                 <div style={styles.stats}>
                     <div style={styles.statItem}>
@@ -237,6 +253,7 @@ const ProfilePage = () => {
                                 </button>
                                 {isDropdownOpen && (
                                     <div style={styles.dropdown}>
+                                        <button style={styles.dropdownItem} onClick={() => { setIsQrOpen(true); setIsDropdownOpen(false); }}>My QR Ticket</button>
                                         <button style={styles.dropdownItem} onClick={handleCopyProfileLink}>Copy Profile Link</button>
                                         <Link to="/settings" style={{...styles.dropdownItem, textDecoration: 'none', color: '#1F2937', display: 'block'}} onClick={() => setIsDropdownOpen(false)}>Settings</Link>
                                         <button style={{...styles.dropdownItem, color: '#EF4444'}} onClick={() => { setIsDropdownOpen(false); logout(); }}>Log out</button>
@@ -425,6 +442,27 @@ const ProfilePage = () => {
                             <button style={styles.cancelButton} onClick={() => setIsEditOpen(false)}>Cancel</button>
                             <button style={styles.saveProfileButton} onClick={handleSaveProfile}>Save</button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {isQrOpen && (
+                <div style={styles.modalBackdrop} onClick={() => setIsQrOpen(false)}>
+                    <div style={{ ...styles.modalContent, textAlign: 'center' }} onClick={(event) => event.stopPropagation()}>
+                        <h2 style={styles.modalTitle}>My QR Ticket</h2>
+                        <p style={{ fontSize: '14px', color: '#6B7280', marginBottom: '16px' }}>
+                            Show this QR code to an organizer to check in and receive points for attending campus events!
+                        </p>
+                        <div style={{ display: 'inline-block', padding: '16px', backgroundColor: '#F9FAFB', borderRadius: '12px', border: '1px solid #E5E7EB', marginBottom: '16px' }}>
+                            <img 
+                                src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(currentUser?.id || '')}`} 
+                                alt="QR Ticket"
+                                style={{ width: '200px', height: '200px', display: 'block' }}
+                            />
+                        </div>
+                        <div style={{ fontWeight: 'bold', fontSize: '15px', color: '#111827', marginBottom: '4px' }}>{currentUser?.name}</div>
+                        <div style={{ fontSize: '13px', color: '#6B7280', marginBottom: '20px' }}>ID: {currentUser?.id}</div>
+                        <button style={styles.cancelButton} onClick={() => setIsQrOpen(false)}>Close</button>
                     </div>
                 </div>
             )}
@@ -794,6 +832,23 @@ const styles: { [key: string]: CSSProperties } = {
         cursor: 'pointer',
         padding: '2px 6px',
         borderRadius: '4px',
+    },
+    badgeContainer: {
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: '6px',
+        margin: '8px 0 16px 0',
+    },
+    badgePill: {
+        display: 'flex',
+        alignItems: 'center',
+        backgroundColor: '#F3F4F6',
+        color: '#374151',
+        borderRadius: '999px',
+        padding: '4px 10px',
+        fontSize: '12px',
+        fontWeight: 'bold',
+        border: '1px solid #E5E7EB',
     },
 };
 

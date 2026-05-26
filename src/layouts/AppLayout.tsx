@@ -17,6 +17,73 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
         return () => window.removeEventListener('resize', handleResize);
     }, []);
 
+    useEffect(() => {
+        // SSE update listener (skip in hosted demo mode unless VITE_API_URL is set)
+        const isHostedDemo = typeof window !== 'undefined' && window.location.hostname.endsWith('github.io') && !import.meta.env.VITE_API_URL;
+        
+        let eventSource: EventSource | null = null;
+        
+        if (!isHostedDemo) {
+            const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+            eventSource = new EventSource(`${backendUrl}/api/updates`);
+
+            eventSource.addEventListener('message', (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    window.dispatchEvent(new CustomEvent('api-message', { detail: data }));
+                } catch (e) {
+                    console.error('Failed to parse message event', e);
+                }
+            });
+
+            eventSource.addEventListener('channel_message', (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    window.dispatchEvent(new CustomEvent('api-channel-message', { detail: data }));
+                } catch (e) {
+                    console.error('Failed to parse channel message event', e);
+                }
+            });
+
+            eventSource.addEventListener('typing', (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    window.dispatchEvent(new CustomEvent('api-typing', { detail: data }));
+                } catch (e) {
+                    console.error('Failed to parse typing event', e);
+                }
+            });
+
+            eventSource.onerror = (err) => {
+                console.error('SSE Error:', err);
+            };
+        }
+
+        // Listen for local demo events and bridge them to the same api-events
+        const handleDemoMessage = (e: Event) => {
+            window.dispatchEvent(new CustomEvent('api-message', { detail: (e as CustomEvent).detail }));
+        };
+        const handleDemoChannelMessage = (e: Event) => {
+            window.dispatchEvent(new CustomEvent('api-channel-message', { detail: (e as CustomEvent).detail }));
+        };
+        const handleDemoTyping = (e: Event) => {
+            window.dispatchEvent(new CustomEvent('api-typing', { detail: (e as CustomEvent).detail }));
+        };
+
+        window.addEventListener('demo-message', handleDemoMessage);
+        window.addEventListener('demo-channel-message', handleDemoChannelMessage);
+        window.addEventListener('demo-typing', handleDemoTyping);
+
+        return () => {
+            if (eventSource) {
+                eventSource.close();
+            }
+            window.removeEventListener('demo-message', handleDemoMessage);
+            window.removeEventListener('demo-channel-message', handleDemoChannelMessage);
+            window.removeEventListener('demo-typing', handleDemoTyping);
+        };
+    }, []);
+
     if (isDesktop) {
         return (
             <div style={styles.desktopContainer}>

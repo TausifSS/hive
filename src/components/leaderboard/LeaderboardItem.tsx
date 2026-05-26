@@ -6,10 +6,11 @@ interface LeaderboardItemProps {
     rank: number;
     name: string;
     points: number;
+    avatarUrl?: string;
     isCurrentUser?: boolean;
 }
 
-const LeaderboardItem: React.FC<LeaderboardItemProps> = ({ rank, name, points, isCurrentUser = false }) => {
+const LeaderboardItem: React.FC<LeaderboardItemProps> = ({ rank, name, points, avatarUrl, isCurrentUser = false }) => {
     
     const getRankIcon = () => {
         if (rank === 1) return <Crown size={24} color="#FFD700" />;
@@ -24,7 +25,21 @@ const LeaderboardItem: React.FC<LeaderboardItemProps> = ({ rank, name, points, i
                 {getRankIcon()}
             </div>
             <div style={styles.profileSection}>
-                <div style={styles.profilePic}></div>
+                {avatarUrl ? (
+                    <img 
+                        src={avatarUrl} 
+                        alt={name} 
+                        style={{
+                            ...styles.profilePicImage,
+                            ...(rank === 1 ? { border: '2.5px solid var(--trophy-gold)', boxShadow: '0 0 8px rgba(255, 215, 0, 0.6)' } : {})
+                        }} 
+                    />
+                ) : (
+                    <div style={{
+                        ...styles.profilePic,
+                        ...(rank === 1 ? { border: '2.5px solid var(--trophy-gold)', boxShadow: '0 0 8px rgba(255, 215, 0, 0.6)' } : {})
+                    }}></div>
+                )}
                 <span style={styles.name}>{name}</span>
             </div>
             <div style={styles.pointsSection}>
@@ -70,6 +85,14 @@ const styles: { [key: string]: React.CSSProperties } = {
         height: '44px',
         borderRadius: '50%',
         backgroundColor: '#E0E0E0',
+        boxSizing: 'border-box',
+    },
+    profilePicImage: {
+        width: '44px',
+        height: '44px',
+        borderRadius: '50%',
+        objectFit: 'cover',
+        boxSizing: 'border-box',
     },
     name: {
         fontWeight: '600',

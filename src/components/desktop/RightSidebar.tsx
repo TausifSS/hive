@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserCircle } from 'lucide-react';
-import { Link } from 'react-router-dom'; // Link import kiya
+import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { getPosts } from '../../lib/api';
 
 const roleLabels = {
     student: 'Student',
@@ -11,6 +12,39 @@ const roleLabels = {
 
 const RightSidebar = () => {
     const { user, logout } = useAuth();
+    const [trending, setTrending] = useState<string[]>([]);
+
+    useEffect(() => {
+        const loadTrending = async () => {
+            try {
+                const response = await getPosts();
+                const counts: Record<string, number> = {};
+                response.posts.forEach((p) => {
+                    const matches = p.content.match(/#(\w+)/g);
+                    if (matches) {
+                        matches.forEach((m) => {
+                            const clean = m.slice(1).toLowerCase();
+                            counts[clean] = (counts[clean] || 0) + 1;
+                        });
+                    }
+                });
+                const topTags = Object.entries(counts)
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 5)
+                    .map((entry) => entry[0]);
+                setTrending(topTags);
+            } catch (err) {
+                console.error('Failed to load trending tags for sidebar', err);
+            }
+        };
+        void loadTrending();
+
+        const handleRefresh = () => {
+            void loadTrending();
+        };
+        window.addEventListener('api-message', handleRefresh);
+        return () => window.removeEventListener('api-message', handleRefresh);
+    }, []);
 
     return (
         <aside style={styles.sidebar}>
@@ -40,6 +74,25 @@ const RightSidebar = () => {
                     {user?.role === 'student' && 'Participate in events, post updates, and grow your leaderboard points.'}
                 </div>
             </div>
+
+            {trending.length > 0 && (
+                <div style={{ ...styles.suggestionsContainer, marginTop: '24px' }}>
+                    <div style={styles.suggestionsHeader}>
+                        <p style={styles.suggestionsTitle}>Trending on HIVE</p>
+                    </div>
+                    <div style={styles.infoCard}>
+                        <ul style={styles.tagList}>
+                            {trending.map((t) => (
+                                <li key={t} style={styles.tagItem}>
+                                    <Link to={`/?tag=${t}`} style={styles.tagLink}>
+                                        #{t}
+                                    </Link>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                </div>
+            )}
         </aside>
     );
 };
@@ -107,6 +160,24 @@ const styles: { [key: string]: React.CSSProperties } = {
         color: '#374151',
         lineHeight: 1.5,
         fontSize: '14px',
+    },
+    tagList: {
+        listStyle: 'none',
+        padding: 0,
+        margin: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '12px',
+    },
+    tagItem: {
+        fontSize: '14px',
+        fontWeight: '600',
+    },
+    tagLink: {
+        color: 'var(--brand-purple, #8B5CF6)',
+        textDecoration: 'none',
+        transition: 'color 0.2s',
+        display: 'block',
     },
 };
 

@@ -16,6 +16,11 @@ const MessagesPage = () => {
     const [conversation, setConversation] = useState<Conversation | null>(null);
     const [messageText, setMessageText] = useState('');
     const [isSending, setIsSending] = useState(false);
+    const [typingUser, setTypingUser] = useState<{ userId: string; name: string } | null>(null);
+    const [mediaAttachment, setMediaAttachment] = useState<{ data: string; name: string; type: string } | null>(null);
+
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const typingTimeoutRef = useRef<number | null>(null);
 
     // Inbox view states
     const [conversations, setConversations] = useState<(Conversation & { otherUser?: User | null })[]>([]);
@@ -87,6 +92,49 @@ const MessagesPage = () => {
         }
     }, [conversation]);
 
+    // Real-time message & typing listener
+    useEffect(() => {
+        const handleIncomingMessage = (e: Event) => {
+            const detail = (e as CustomEvent).detail;
+            if (userId) {
+                if (conversation && detail.conversationId === conversation.id) {
+                    setConversation((prev) => {
+                        if (!prev) return null;
+                        if (prev.messages.some((m) => m.id === detail.message.id)) return prev;
+                        return {
+                            ...prev,
+                            messages: [...prev.messages, detail.message],
+                        };
+                    });
+                }
+            } else {
+                void loadInbox();
+            }
+        };
+
+        const handleIncomingTyping = (e: Event) => {
+            const detail = (e as CustomEvent).detail;
+            if (userId && conversation && detail.conversationId === conversation.id && detail.userId !== currentUser?.id) {
+                if (detail.isTyping) {
+                    setTypingUser({ userId: detail.userId, name: detail.name });
+                } else {
+                    setTypingUser(null);
+                }
+            }
+        };
+
+        window.addEventListener('api-message', handleIncomingMessage);
+        window.addEventListener('api-typing', handleIncomingTyping);
+
+        return () => {
+            window.removeEventListener('api-message', handleIncomingMessage);
+            window.removeEventListener('api-typing', handleIncomingTyping);
+            if (typingTimeoutRef.current) {
+                window.clearTimeout(typingTimeoutRef.current);
+            }
+        };
+    }, [userId, conversation, currentUser]);
+
     // Handle searching users
     const handleSearchChange = (e: ChangeEvent<HTMLInputElement>) => {
         const query = e.target.value;
@@ -103,17 +151,60 @@ const MessagesPage = () => {
         setSearchResults(filtered);
     };
 
+    const handleFileAttach = (e: ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            setMediaAttachment({
+                data: reader.result as string,
+                name: file.name,
+                type: file.type
+            });
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const handleInputChange = (text: string) => {
+        setMessageText(text);
+
+        if (!conversation) return;
+
+        // Notify typing
+        import('../lib/api').then(({ sendTypingStatus }) => {
+            void sendTypingStatus(conversation.id, true);
+        }).catch(err => console.error(err));
+
+        if (typingTimeoutRef.current) window.clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = window.setTimeout(() => {
+            import('../lib/api').then(({ sendTypingStatus }) => {
+                void sendTypingStatus(conversation.id, false);
+            }).catch(err => console.error(err));
+        }, 2000);
+    };
+
     const handleSend = async () => {
         const content = messageText.trim();
-        if (!content || !conversation || isSending) return;
+        const mediaUrl = mediaAttachment?.data || '';
+        if ((!content && !mediaUrl) || !conversation || isSending) return;
 
         setIsSending(true);
         setError('');
 
         try {
-            const response = await sendConversationMessage(conversation.id, content);
+            if (typingTimeoutRef.current) {
+                window.clearTimeout(typingTimeoutRef.current);
+            }
+            import('../lib/api').then(({ sendTypingStatus }) => {
+                void sendTypingStatus(conversation.id, false);
+            }).catch(err => console.error(err));
+
+            const response = await sendConversationMessage(conversation.id, content, mediaUrl);
             setConversation(response.conversation);
             setMessageText('');
+            setMediaAttachment(null);
+            if (fileInputRef.current) fileInputRef.current.value = '';
         } catch (sendError) {
             setError(sendError instanceof Error ? sendError.message : 'Unable to send message');
         } finally {
@@ -205,7 +296,40 @@ const MessagesPage = () => {
                                 return (
                                     <div key={message.id} style={{ ...styles.bubbleRow, justifyContent: isMine ? 'flex-end' : 'flex-start' }}>
                                         <div style={{ ...styles.bubble, ...(isMine ? styles.myBubble : styles.theirBubble) }}>
-                                            <p style={styles.messageContent}>{message.content}</p>
+                                            {message.mediaUrl && (
+                                                <div style={{ marginBottom: '6px' }}>
+                                                    {message.mediaUrl.startsWith('data:image/') ? (
+                                                        <img 
+                                                            src={message.mediaUrl} 
+                                                            alt="attachment" 
+                                                            style={{ maxWidth: '100%', maxHeight: '200px', borderRadius: '8px', cursor: 'zoom-in' }} 
+                                                            onClick={() => {
+                                                                const w = window.open();
+                                                                if (w) w.document.write(`<img src="${message.mediaUrl}" style="max-width:100%; max-height:100%; display:block; margin:auto;" />`);
+                                                            }}
+                                                        />
+                                                    ) : (
+                                                        <a 
+                                                            href={message.mediaUrl} 
+                                                            download={message.mediaUrl.startsWith('data:') ? 'attachment' : message.mediaUrl.split('/').pop()} 
+                                                            style={{ 
+                                                                display: 'flex', 
+                                                                alignItems: 'center', 
+                                                                gap: '8px', 
+                                                                color: isMine ? '#E0E7FF' : 'var(--brand-purple)', 
+                                                                textDecoration: 'underline',
+                                                                fontSize: '14px',
+                                                                padding: '8px',
+                                                                backgroundColor: isMine ? 'rgba(255,255,255,0.1)' : '#F3F4F6',
+                                                                borderRadius: '6px'
+                                                            }}
+                                                        >
+                                                            <span>📄 Download File</span>
+                                                        </a>
+                                                    )}
+                                                </div>
+                                            )}
+                                            {message.content && <p style={styles.messageContent}>{message.content}</p>}
                                             <span style={styles.messageTime}>
                                                 {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                             </span>
@@ -213,6 +337,15 @@ const MessagesPage = () => {
                                     </div>
                                 );
                             })}
+                            {typingUser && (
+                                <div style={{ ...styles.bubbleRow, justifyContent: 'flex-start' }}>
+                                    <div style={{ ...styles.bubble, ...styles.theirBubble, backgroundColor: '#F3F4F6' }}>
+                                        <p style={{ ...styles.messageContent, fontStyle: 'italic', color: '#6B7280' }}>
+                                            {typingUser.name} is typing...
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
                             <div ref={messagesEndRef} />
                         </>
                     ) : (
@@ -220,24 +353,57 @@ const MessagesPage = () => {
                     )}
                 </main>
 
-                <footer style={styles.inputArea}>
-                    <input
-                        type="text"
-                        placeholder="Type a message..."
-                        value={messageText}
-                        onChange={(event) => setMessageText(event.target.value)}
-                        onKeyDown={handleInputKeyDown}
-                        style={styles.input}
-                        disabled={isLoading || !conversation}
-                    />
-                    <button
-                        aria-label="Send direct message"
-                        style={{ ...styles.sendButton, ...(isSending ? styles.disabledButton : {}) }}
-                        onClick={handleSend}
-                        disabled={isSending || !messageText.trim() || !conversation}
-                    >
-                        <Send size={18} color="white" />
-                    </button>
+                <footer style={{ ...styles.inputArea, flexDirection: 'column', alignItems: 'stretch' }}>
+                    {mediaAttachment && (
+                        <div style={styles.attachmentPreview}>
+                            <span style={{ fontSize: '13px', color: '#4B5563', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                📎 {mediaAttachment.name}
+                            </span>
+                            <button 
+                                type="button" 
+                                onClick={() => {
+                                    setMediaAttachment(null);
+                                    if (fileInputRef.current) fileInputRef.current.value = '';
+                                }} 
+                                style={styles.cancelAttachmentBtn}
+                            >
+                                &times;
+                            </button>
+                        </div>
+                    )}
+                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                        <button
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            style={styles.attachButton}
+                            title="Attach File"
+                        >
+                            📎
+                        </button>
+                        <input 
+                            type="file" 
+                            ref={fileInputRef} 
+                            onChange={handleFileAttach} 
+                            style={{ display: 'none' }} 
+                        />
+                        <input
+                            type="text"
+                            placeholder="Type a message..."
+                            value={messageText}
+                            onChange={(event) => handleInputChange(event.target.value)}
+                            onKeyDown={handleInputKeyDown}
+                            style={styles.input}
+                            disabled={isLoading || !conversation}
+                        />
+                        <button
+                            aria-label="Send direct message"
+                            style={{ ...styles.sendButton, ...(isSending ? styles.disabledButton : {}) }}
+                            onClick={handleSend}
+                            disabled={isSending || (!messageText.trim() && !mediaAttachment) || !conversation}
+                        >
+                            <Send size={18} color="white" />
+                        </button>
+                    </div>
                 </footer>
             </div>
         );
@@ -331,7 +497,7 @@ const MessagesPage = () => {
                                             </span>
                                         </div>
                                         <p style={{ ...styles.convoSnippet, color: isUnread ? '#1F2937' : '#6B7280', fontWeight: isUnread ? '600' : 'normal' }}>
-                                            {lastMsg ? lastMsg.content : 'Start chatting!'}
+                                            {lastMsg ? (lastMsg.mediaUrl && !lastMsg.content ? '📎 Sent an attachment' : lastMsg.content) : 'Start chatting!'}
                                         </p>
                                     </div>
                                 </Link>
@@ -585,6 +751,33 @@ const styles: { [key: string]: CSSProperties } = {
         backgroundColor: 'var(--brand-purple, #8B5CF6)',
         marginLeft: '8px',
         flexShrink: 0,
+    },
+    attachmentPreview: {
+        display: 'flex',
+        alignItems: 'center',
+        padding: '6px 12px',
+        backgroundColor: '#F3F4F6',
+        borderRadius: '8px',
+        marginBottom: '8px',
+        gap: '8px',
+        textAlign: 'left'
+    },
+    cancelAttachmentBtn: {
+        border: 'none',
+        background: 'none',
+        fontSize: '18px',
+        cursor: 'pointer',
+        color: '#EF4444',
+        padding: 0,
+        fontWeight: 'bold'
+    },
+    attachButton: {
+        fontSize: '20px',
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        padding: '6px',
+        color: '#6B7280'
     },
 };
 

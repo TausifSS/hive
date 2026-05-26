@@ -17,6 +17,10 @@ const SocialChatPage = () => {
     const [isSending, setIsSending] = useState(false);
     const [error, setError] = useState('');
     
+    // File attachments states
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [mediaAttachment, setMediaAttachment] = useState<{ data: string; name: string; type: string } | null>(null);
+    
     // Toggle list view on mobile
     const [showMobileList, setShowMobileList] = useState(true);
     
@@ -73,17 +77,57 @@ const SocialChatPage = () => {
         void loadMessages();
     }, [activeTab]);
 
+    // Real-time channel message listener
+    useEffect(() => {
+        const handleIncomingChannelMessage = (e: Event) => {
+            const detail = (e as CustomEvent).detail;
+            if (detail.channelId === activeTab) {
+                setMessages((prev) => {
+                    if (prev.some((m) => m.id === detail.message.id)) return prev;
+                    const next = [...prev, detail.message];
+                    setTimeout(() => {
+                        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+                    }, 50);
+                    return next;
+                });
+            }
+        };
+
+        window.addEventListener('api-channel-message', handleIncomingChannelMessage);
+        return () => {
+            window.removeEventListener('api-channel-message', handleIncomingChannelMessage);
+        };
+    }, [activeTab]);
+
+    const handleFileAttach = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            setMediaAttachment({
+                data: reader.result as string,
+                name: file.name,
+                type: file.type
+            });
+        };
+        reader.readAsDataURL(file);
+    };
+
     const handleSend = async () => {
         const content = messageText.trim();
-        if (!content || isSending) return;
+        const mediaUrl = mediaAttachment?.data || '';
+        if ((!content && !mediaUrl) || isSending) return;
 
         setIsSending(true);
         setError('');
 
         try {
-            const response = await sendChannelMessage(activeTab, content);
+            const response = await sendChannelMessage(activeTab, content, mediaUrl);
             setMessages(response.messages);
             setMessageText('');
+            setMediaAttachment(null);
+            if (fileInputRef.current) fileInputRef.current.value = '';
             scrollToBottom();
         } catch (sendError) {
             setError(sendError instanceof Error ? sendError.message : 'Unable to send message');
@@ -328,7 +372,40 @@ const SocialChatPage = () => {
                                                 {message.author?.name || 'Student'}
                                             </Link>
                                         )}
-                                        <p style={styles.messageContent}>{message.content}</p>
+                                        {message.mediaUrl && (
+                                            <div style={{ marginBottom: '6px' }}>
+                                                {message.mediaUrl.startsWith('data:image/') ? (
+                                                    <img 
+                                                        src={message.mediaUrl} 
+                                                        alt="attachment" 
+                                                        style={{ maxWidth: '100%', maxHeight: '200px', borderRadius: '8px', cursor: 'zoom-in' }} 
+                                                        onClick={() => {
+                                                            const w = window.open();
+                                                            if (w) w.document.write(`<img src="${message.mediaUrl}" style="max-width:100%; max-height:100%; display:block; margin:auto;" />`);
+                                                        }}
+                                                    />
+                                                ) : (
+                                                    <a 
+                                                        href={message.mediaUrl} 
+                                                        download={message.mediaUrl.startsWith('data:') ? 'attachment' : message.mediaUrl.split('/').pop()} 
+                                                        style={{ 
+                                                            display: 'flex', 
+                                                            alignItems: 'center', 
+                                                            gap: '8px', 
+                                                            color: isMine ? '#E0E7FF' : 'var(--brand-purple)', 
+                                                            textDecoration: 'underline',
+                                                            fontSize: '14px',
+                                                            padding: '8px',
+                                                            backgroundColor: isMine ? 'rgba(255,255,255,0.1)' : '#F3F4F6',
+                                                            borderRadius: '6px'
+                                                        }}
+                                                    >
+                                                        <span>📄 Download File</span>
+                                                    </a>
+                                                )}
+                                            </div>
+                                        )}
+                                        {message.content && <p style={styles.messageContent}>{message.content}</p>}
                                         <span style={{ ...styles.messageTime, color: isMine ? 'rgba(255,255,255,0.75)' : '#9CA3AF' }}>
                                             {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                         </span>
@@ -340,24 +417,57 @@ const SocialChatPage = () => {
                     <div ref={messagesEndRef} />
                 </div>
 
-                <div style={styles.chatInputArea}>
-                    <input
-                        type="text"
-                        placeholder={`Message #${channelName}`}
-                        value={messageText}
-                        onChange={(event) => setMessageText(event.target.value)}
-                        onKeyDown={handleKeyDown}
-                        style={styles.chatInput}
-                        disabled={isMessagesLoading}
-                    />
-                    <button
-                        aria-label="Send channel message"
-                        style={{ ...styles.sendButton, ...((isSending || !messageText.trim()) ? styles.disabledButton : {}) }}
-                        onClick={handleSend}
-                        disabled={isSending || !messageText.trim()}
-                    >
-                        <Send size={18} color="white" />
-                    </button>
+                <div style={{ ...styles.chatInputArea, flexDirection: 'column', alignItems: 'stretch' }}>
+                    {mediaAttachment && (
+                        <div style={styles.attachmentPreview}>
+                            <span style={{ fontSize: '13px', color: '#4B5563', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                📎 {mediaAttachment.name}
+                            </span>
+                            <button 
+                                type="button" 
+                                onClick={() => {
+                                    setMediaAttachment(null);
+                                    if (fileInputRef.current) fileInputRef.current.value = '';
+                                }} 
+                                style={styles.cancelAttachmentBtn}
+                            >
+                                &times;
+                            </button>
+                        </div>
+                    )}
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                        <button
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            style={styles.attachButton}
+                            title="Attach File"
+                        >
+                            📎
+                        </button>
+                        <input 
+                            type="file" 
+                            ref={fileInputRef} 
+                            onChange={handleFileAttach} 
+                            style={{ display: 'none' }} 
+                        />
+                        <input
+                            type="text"
+                            placeholder={`Message #${channelName}`}
+                            value={messageText}
+                            onChange={(event) => setMessageText(event.target.value)}
+                            onKeyDown={handleKeyDown}
+                            style={styles.chatInput}
+                            disabled={isMessagesLoading}
+                        />
+                        <button
+                            aria-label="Send channel message"
+                            style={{ ...styles.sendButton, ...((isSending || (!messageText.trim() && !mediaAttachment)) ? styles.disabledButton : {}) }}
+                            onClick={handleSend}
+                            disabled={isSending || (!messageText.trim() && !mediaAttachment)}
+                        >
+                            <Send size={18} color="white" />
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -699,6 +809,33 @@ const styles: { [key: string]: CSSProperties } = {
         fontWeight: 'bold',
         cursor: 'pointer',
         fontSize: '14px',
+    },
+    attachmentPreview: {
+        display: 'flex',
+        alignItems: 'center',
+        padding: '6px 12px',
+        backgroundColor: '#F3F4F6',
+        borderRadius: '8px',
+        marginBottom: '8px',
+        gap: '8px',
+        textAlign: 'left'
+    },
+    cancelAttachmentBtn: {
+        border: 'none',
+        background: 'none',
+        fontSize: '18px',
+        cursor: 'pointer',
+        color: '#EF4444',
+        padding: 0,
+        fontWeight: 'bold'
+    },
+    attachButton: {
+        fontSize: '20px',
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        padding: '6px',
+        color: '#6B7280'
     },
 };
 

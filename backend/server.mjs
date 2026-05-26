@@ -14,6 +14,19 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE
 const MAX_BODY_BYTES = 5_000_000;
 const MIN_PASSWORD_LENGTH = 6;
 
+const activeClients = [];
+
+function broadcast(event, data) {
+  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const client of activeClients) {
+    try {
+      client.res.write(payload);
+    } catch (e) {
+      // connection broken or closed
+    }
+  }
+}
+
 function getJsonHeaders(req) {
   const origin = req.headers.origin;
   const allowedOrigins = ['http://localhost:5173', 'http://localhost:5174', 'https://tausifss.github.io'];
@@ -221,6 +234,35 @@ async function handleRoute(req, res) {
   }
 
   const url = new URL(req.url || '/', `http://${req.headers.host}`);
+
+  if (url.pathname === '/api/updates' && req.method === 'GET') {
+    const origin = req.headers.origin;
+    const allowedOrigins = ['http://localhost:5173', 'http://localhost:5174', 'https://tausifss.github.io'];
+    const corsOrigin = allowedOrigins.includes(origin) ? origin : (process.env.CLIENT_ORIGIN || '*');
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': corsOrigin,
+      'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+      'Access-Control-Allow-Methods': 'GET,OPTIONS',
+    });
+
+    res.write(':ok\n\n');
+
+    const client = { res };
+    activeClients.push(client);
+
+    req.on('close', () => {
+      const idx = activeClients.indexOf(client);
+      if (idx !== -1) {
+        activeClients.splice(idx, 1);
+      }
+    });
+    return;
+  }
+
   const pathParts = url.pathname.split('/').filter(Boolean);
 
   if (url.pathname === '/api/health' && req.method === 'GET') {
@@ -598,6 +640,38 @@ async function handleRoute(req, res) {
     return;
   }
 
+  if (url.pathname === '/api/admin/reports' && req.method === 'GET') {
+    const currentUser = await requireUser(req);
+    if (!currentUser) {
+      send(req, res, 401, { error: 'Authentication required' });
+      return;
+    }
+    if (!isAdmin(currentUser)) {
+      sendForbidden(req, res);
+      return;
+    }
+
+    const reports = await db.listPostReports();
+    send(req, res, 200, { reports });
+    return;
+  }
+
+  if (pathParts[0] === 'api' && pathParts[1] === 'admin' && pathParts[2] === 'reports' && pathParts[3] && req.method === 'DELETE') {
+    const currentUser = await requireUser(req);
+    if (!currentUser) {
+      send(req, res, 401, { error: 'Authentication required' });
+      return;
+    }
+    if (!isAdmin(currentUser)) {
+      sendForbidden(req, res);
+      return;
+    }
+
+    await db.deletePostReport(pathParts[3]);
+    send(req, res, 200, { ok: true });
+    return;
+  }
+
   if (pathParts[0] === 'api' && pathParts[1] === 'admin' && pathParts[2] === 'club-applications' && pathParts[3] && pathParts[4] === 'review' && req.method === 'PATCH') {
     const currentUser = await requireUser(req);
     if (!currentUser) {
@@ -873,6 +947,30 @@ async function handleRoute(req, res) {
     return;
   }
 
+  if (pathParts[0] === 'api' && pathParts[1] === 'posts' && pathParts[2] && pathParts[3] === 'report' && req.method === 'POST') {
+    const currentUser = await requireUser(req);
+    if (!currentUser) {
+      send(req, res, 401, { error: 'Authentication required' });
+      return;
+    }
+
+    const post = await db.getPostById(pathParts[2]);
+    if (!post) {
+      notFound(req, res);
+      return;
+    }
+
+    const body = await parseBody(req);
+    if (!body.reason) {
+      send(req, res, 400, { error: 'reason is required' });
+      return;
+    }
+
+    const report = await db.createPostReport(post.id, currentUser.id, body.reason);
+    send(req, res, 201, { success: true, report });
+    return;
+  }
+
   if (url.pathname === '/api/events' && req.method === 'GET') {
     const events = await db.listEvents();
     send(req, res, 200, { events });
@@ -946,6 +1044,44 @@ async function handleRoute(req, res) {
     return;
   }
 
+  if (pathParts[0] === 'api' && pathParts[1] === 'events' && pathParts[2] && pathParts[3] === 'attendance' && req.method === 'POST') {
+    const currentUser = await requireUser(req);
+    if (!currentUser) {
+      send(req, res, 401, { error: 'Authentication required' });
+      return;
+    }
+    if (!['club_admin', 'Admin'].includes(currentUser.role)) {
+      sendForbidden(req, res);
+      return;
+    }
+
+    const event = await db.getEventById(pathParts[2]);
+    if (!event) {
+      notFound(req, res);
+      return;
+    }
+
+    const body = await parseBody(req);
+    const targetUser = await db.getUserByIdOrHandle(body.userId);
+    if (!targetUser) {
+      send(req, res, 404, { error: 'Student not found. Double check their student ID/username.' });
+      return;
+    }
+
+    const result = await db.verifyAttendance(event.id, targetUser.id);
+    if (!result) {
+      send(req, res, 500, { error: 'Verification failed' });
+      return;
+    }
+
+    send(req, res, 200, {
+      success: true,
+      event: result.event,
+      user: db.publicUser(result.user)
+    });
+    return;
+  }
+
   if (url.pathname === '/api/leaderboard' && req.method === 'GET') {
     const users = await db.listLeaderboard();
     send(req, res, 200, { users });
@@ -994,13 +1130,36 @@ async function handleRoute(req, res) {
     }
 
     const body = await parseBody(req);
-    if (!body.content) {
+    if (!body.content && !body.mediaUrl) {
       send(req, res, 400, { error: 'content is required' });
       return;
     }
 
-    const msgRes = await db.addConversationMessage(conversation.id, currentUser.id, body.content);
+    const msgRes = await db.addConversationMessage(conversation.id, currentUser.id, body.content || '', body.mediaUrl || '');
+    
+    // Broadcast message via SSE
+    broadcast('message', { conversationId: conversation.id, message: msgRes.message });
+
     send(req, res, 201, msgRes);
+    return;
+  }
+
+  if (pathParts[0] === 'api' && pathParts[1] === 'conversations' && pathParts[3] === 'typing' && req.method === 'POST') {
+    const currentUser = await requireUser(req);
+    if (!currentUser) {
+      send(req, res, 401, { error: 'Authentication required' });
+      return;
+    }
+
+    const body = await parseBody(req);
+    broadcast('typing', {
+      conversationId: pathParts[2],
+      userId: currentUser.id,
+      name: currentUser.name,
+      isTyping: Boolean(body.isTyping),
+    });
+
+    send(req, res, 200, { ok: true });
     return;
   }
 
@@ -1059,7 +1218,7 @@ async function handleRoute(req, res) {
     }
 
     const body = await parseBody(req);
-    const result = await db.addChannelMessage(pathParts[3], currentUser.id, body.content);
+    const result = await db.addChannelMessage(pathParts[3], currentUser.id, body.content || '', body.mediaUrl || '');
     if (result.error === 'not-found') {
       notFound(req, res);
       return;
@@ -1068,6 +1227,10 @@ async function handleRoute(req, res) {
       send(req, res, 400, { error: 'content is required' });
       return;
     }
+
+    // Broadcast channel message via SSE
+    broadcast('channel_message', { channelId: pathParts[3], message: result.message });
+
     send(req, res, 201, result);
     return;
   }

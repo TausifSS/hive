@@ -69,12 +69,23 @@ const EventDetailsPage = () => {
                             <h1 style={styles.title}>{event.title}</h1>
                             <p style={styles.organizer}>by {event.organizer}</p>
                         </div>
-                        <button
-                            style={isRegistered ? styles.registeredButton : styles.registerButton}
-                            onClick={handleRegister}
-                        >
-                            {isRegistered ? 'Registered' : 'Register'}
-                        </button>
+                        <div style={styles.actionButtonsContainer}>
+                            <button
+                                style={isRegistered ? styles.registeredButton : styles.registerButton}
+                                onClick={handleRegister}
+                            >
+                                {isRegistered ? 'Registered' : 'Register'}
+                            </button>
+                            <a
+                                href={getGoogleCalendarUrl(event)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={styles.calendarButton}
+                                title="Add to Google Calendar"
+                            >
+                                Add to Calendar
+                            </a>
+                        </div>
                     </div>
 
                     <p style={styles.subtitle}>{event.description}</p>
@@ -103,6 +114,23 @@ const EventDetailsPage = () => {
             )}
         </div>
     );
+};
+
+const getGoogleCalendarUrl = (event: HiveEvent) => {
+    const startDate = new Date(event.date);
+    // Default duration is 2 hours
+    const endDate = new Date(startDate.getTime() + 2 * 60 * 60 * 1000);
+    
+    const formatToGCal = (date: Date) => {
+        return date.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+    };
+    
+    const dates = `${formatToGCal(startDate)}/${formatToGCal(endDate)}`;
+    const text = encodeURIComponent(event.title);
+    const details = encodeURIComponent(`${event.description || ''}\n\nOrganizer: ${event.organizer || ''}\nPoints: ${event.points || 0}`);
+    const location = encodeURIComponent(event.venue || '');
+    
+    return `https://www.google.com/calendar/render?action=TEMPLATE&text=${text}&dates=${dates}&details=${details}&location=${location}`;
 };
 
 const styles: { [key: string]: React.CSSProperties } = {
@@ -191,6 +219,25 @@ const styles: { [key: string]: React.CSSProperties } = {
         borderRadius: '10px',
         fontWeight: 'bold',
         cursor: 'default',
+    },
+    actionButtonsContainer: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '10px',
+    },
+    calendarButton: {
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '12px 20px',
+        backgroundColor: '#FFFFFF',
+        color: 'var(--brand-purple, #8B5CF6)',
+        border: '1px solid var(--brand-purple, #8B5CF6)',
+        borderRadius: '10px',
+        fontWeight: 'bold',
+        textDecoration: 'none',
+        cursor: 'pointer',
+        transition: 'all 0.2s',
     },
     loadingBox: {
         backgroundColor: '#FFFFFF',

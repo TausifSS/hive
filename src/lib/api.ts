@@ -16,6 +16,7 @@ export interface User {
     blockedAt?: string | null;
     followers?: string[];
     following?: string[];
+    badges?: { id: string; name: string; icon: string }[];
 }
 
 export interface AuthResponse {
@@ -81,6 +82,7 @@ export interface ConversationMessage {
     id: string;
     senderId: string;
     content: string;
+    mediaUrl?: string;
     createdAt: string;
 }
 
@@ -96,6 +98,7 @@ export interface ChannelMessage {
     channelId: string;
     senderId: string;
     content: string;
+    mediaUrl?: string;
     createdAt: string;
     author?: User | null;
 }
@@ -178,6 +181,7 @@ interface DemoDb {
     conversations: Conversation[];
     channelMessages: Record<string, ChannelMessage[]>;
     channels: Channel[];
+    reports?: any[];
 }
 
 const DEMO_DB_STORAGE_KEY = 'hive-demo-db-v1';
@@ -216,11 +220,15 @@ const readDemoDb = (): DemoDb => {
             { id: 'club-coding', name: 'Coding Club Chat', category: 'club', createdAt: nowIso() },
             { id: 'club-sports', name: 'Sports Club Chat', category: 'club', createdAt: nowIso() },
         ],
+        reports: [],
     };
 
     if (parsed) {
         if (!parsed.channels || parsed.channels.length === 0) {
             parsed.channels = defaultDb.channels;
+        }
+        if (!parsed.reports) {
+            parsed.reports = [];
         }
         return parsed;
     }
@@ -265,7 +273,27 @@ const demoAvatar = (name: string) => `https://placehold.co/100x100/EFEFEF/333?te
 const publicDemoUser = (user?: DemoUser | null): User | null => {
     if (!user) return null;
     const { password, ...safeUser } = user;
-    return safeUser;
+    try {
+        const db = readDemoDb();
+        const postCount = (db.posts || []).filter((p) => p.authorId === user.id).length;
+        const regCount = (db.events || []).filter((e) => e.registeredUserIds?.includes(user.id)).length;
+        const msgCount = (db.conversations || []).reduce((acc, c) => acc + (c.participantIds?.includes(user.id) ? (c.messages || []).filter((m) => m.senderId === user.id).length : 0), 0);
+        
+        const badges: { id: string; name: string; icon: string }[] = [];
+        if (regCount >= 5) badges.push({ id: 'event-explorer', name: 'Event Explorer', icon: '📅' });
+        else if (regCount >= 1) badges.push({ id: 'early-joiner', name: 'Early Joiner', icon: '🌟' });
+
+        if (postCount >= 15) badges.push({ id: 'top-contributor', name: 'Top Contributor', icon: '🔥' });
+        else if (postCount >= 5) badges.push({ id: 'rising-writer', name: 'Rising Writer', icon: '✍️' });
+
+        if (msgCount >= 20) badges.push({ id: 'social-butterfly', name: 'Social Butterfly', icon: '🦋' });
+
+        if ((user.points || 0) >= 100) badges.push({ id: 'academic-elite', name: 'Academic Elite', icon: '🎓' });
+        
+        return { ...safeUser, badges };
+    } catch {
+        return safeUser;
+    }
 };
 
 const publicDemoClubApplication = (application?: DemoClubApplication | null): ClubApplication | null => {
@@ -591,6 +619,25 @@ async function demoRequest<T>(path: string, options: RequestOptions = {}): Promi
         return finish({ event: demoEvent(db, event), user: publicDemoUser(user) } as T);
     }
 
+    if (parts[0] === 'api' && parts[1] === 'events' && parts[3] === 'attendance' && method === 'POST') {
+        const user = requireDemoUser(db);
+        if (!['club_admin', 'Admin'].includes(user.role)) throw new Error('Forbidden');
+        const event = db.events.find((candidate) => candidate.id === parts[2]);
+        if (!event) throw new Error('Event not found');
+        const targetUser = db.users.find((candidate) => candidate.id === body.userId || candidate.handle === body.userId);
+        if (!targetUser) throw new Error('Student not found. Double check their student ID/username.');
+        
+        if (!event.registeredUserIds.includes(targetUser.id)) {
+            event.registeredUserIds.push(targetUser.id);
+            targetUser.points = Number(targetUser.points || 0) + Number(event.points || 0);
+        }
+        return finish({
+            success: true,
+            event: demoEvent(db, event),
+            user: publicDemoUser(targetUser)
+        } as T);
+    }
+
     if (url.pathname === '/api/leaderboard' && method === 'GET') {
         return finish({ users: db.users.slice().sort((a, b) => Number(b.points || 0) - Number(a.points || 0)).map((user, index) => ({ ...publicDemoUser(user), rank: index + 1 })) } as T);
     }
@@ -628,10 +675,39 @@ async function demoRequest<T>(path: string, options: RequestOptions = {}): Promi
         const user = requireDemoUser(db);
         const conversation = db.conversations.find((candidate) => candidate.id === parts[2]);
         if (!conversation || !conversation.participantIds.includes(user.id)) throw new Error('Not found');
-        const message: ConversationMessage = { id: crypto.randomUUID(), senderId: user.id, content: String(body.content || ''), createdAt: nowIso() };
+        const message: ConversationMessage = { 
+            id: crypto.randomUUID(), 
+            senderId: user.id, 
+            content: String(body.content || ''), 
+            mediaUrl: String(body.mediaUrl || ''), 
+            createdAt: nowIso() 
+        };
         conversation.messages.push(message);
         conversation.updatedAt = message.createdAt;
+
+        // Dispatch local event for real-time behavior in demo mode
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('demo-message', {
+                detail: { conversationId: conversation.id, message }
+            }));
+        }
+
         return finish({ conversation, message } as T);
+    }
+
+    if (parts[0] === 'api' && parts[1] === 'conversations' && parts[3] === 'typing' && method === 'POST') {
+        const user = requireDemoUser(db);
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('demo-typing', {
+                detail: {
+                    conversationId: parts[2],
+                    userId: user.id,
+                    name: user.name,
+                    isTyping: Boolean(body.isTyping),
+                }
+            }));
+        }
+        return finish({ ok: true } as T);
     }
 
     if (parts[0] === 'api' && parts[1] === 'chat' && parts[2] === 'channels' && parts[3] && parts[4] === 'messages') {
@@ -640,8 +716,24 @@ async function demoRequest<T>(path: string, options: RequestOptions = {}): Promi
         db.channelMessages[channelId] = db.channelMessages[channelId] || [];
         if (method === 'GET') return finish({ messages: db.channelMessages[channelId] } as T);
         if (method === 'POST') {
-            const message: ChannelMessage = { id: crypto.randomUUID(), channelId, senderId: user.id, content: String(body.content || ''), createdAt: nowIso(), author: publicDemoUser(user) };
+            const message: ChannelMessage = { 
+                id: crypto.randomUUID(), 
+                channelId, 
+                senderId: user.id, 
+                content: String(body.content || ''), 
+                mediaUrl: String(body.mediaUrl || ''), 
+                createdAt: nowIso(), 
+                author: publicDemoUser(user) 
+            };
             db.channelMessages[channelId].push(message);
+
+            // Dispatch local event for real-time behavior in demo mode
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('demo-channel-message', {
+                    detail: { channelId, message }
+                }));
+            }
+
             return finish({ messages: db.channelMessages[channelId], message } as T);
         }
     }
@@ -714,6 +806,51 @@ async function demoRequest<T>(path: string, options: RequestOptions = {}): Promi
             db.users = db.users.filter((candidate) => candidate.id !== targetUser.id);
             return finish({ ok: true } as T);
         }
+    }
+
+    if (parts[0] === 'api' && parts[1] === 'posts' && parts[3] === 'report' && method === 'POST') {
+        const user = requireDemoUser(db);
+        db.reports = db.reports || [];
+        const report = {
+            id: crypto.randomUUID(),
+            postId: parts[2],
+            reportedBy: user.id,
+            reason: String(body.reason || ''),
+            createdAt: nowIso()
+        };
+        db.reports.push(report);
+        return finish({ success: true, report } as T);
+    }
+
+    if (url.pathname === '/api/admin/reports' && method === 'GET') {
+        const user = requireDemoUser(db);
+        if (user.role !== 'Admin') throw new Error('Forbidden');
+        db.reports = db.reports || [];
+        const results = db.reports.map((r: any) => {
+            const post = db.posts.find((p) => p.id === r.postId) || { content: '[Deleted Post]', authorId: '' };
+            const postAuthor = db.users.find((u) => u.id === post.authorId);
+            const reporter = db.users.find((u) => u.id === r.reportedBy);
+            return {
+                id: r.id,
+                postId: r.postId,
+                postContent: post.content,
+                postAuthor: publicDemoUser(postAuthor),
+                reportedBy: r.reportedBy,
+                reporterName: reporter?.name || 'User',
+                reporterHandle: reporter?.handle || r.reportedBy,
+                reason: r.reason,
+                createdAt: r.createdAt
+            };
+        });
+        return finish({ reports: results } as T);
+    }
+
+    if (parts[0] === 'api' && parts[1] === 'admin' && parts[2] === 'reports' && parts[3] && method === 'DELETE') {
+        const user = requireDemoUser(db);
+        if (user.role !== 'Admin') throw new Error('Forbidden');
+        db.reports = db.reports || [];
+        db.reports = db.reports.filter((r: any) => r.id !== parts[3]);
+        return finish({ ok: true } as T);
     }
 
     throw new Error('Demo route is not available yet');
@@ -908,10 +1045,16 @@ export const getConversations = () =>
 export const getConversation = (otherUserId: string) =>
     apiRequest<{ conversation: Conversation }>(`/api/conversations/${otherUserId}`);
 
-export const sendConversationMessage = (conversationId: string, content: string) =>
+export const sendConversationMessage = (conversationId: string, content: string, mediaUrl?: string) =>
     apiRequest<{ conversation: Conversation; message: ConversationMessage }>(`/api/conversations/${conversationId}/messages`, {
         method: 'POST',
-        body: { content },
+        body: { content, mediaUrl },
+    });
+
+export const sendTypingStatus = (conversationId: string, isTyping: boolean) =>
+    apiRequest<{ ok: boolean }>(`/api/conversations/${conversationId}/typing`, {
+        method: 'POST',
+        body: { isTyping },
     });
 
 export const getChannels = () =>
@@ -926,10 +1069,10 @@ export const createChannel = (body: { name: string; category: string }) =>
 export const getChannelMessages = (channelId: string) =>
     apiRequest<{ messages: ChannelMessage[] }>(`/api/chat/channels/${channelId}/messages`);
 
-export const sendChannelMessage = (channelId: string, content: string) =>
+export const sendChannelMessage = (channelId: string, content: string, mediaUrl?: string) =>
     apiRequest<{ messages: ChannelMessage[]; message: ChannelMessage }>(`/api/chat/channels/${channelId}/messages`, {
         method: 'POST',
-        body: { content },
+        body: { content, mediaUrl },
     });
 
 export const askAssistant = (message: string) =>
@@ -973,5 +1116,25 @@ export const setAdminUserBlocked = (userId: string, blocked: boolean) =>
 
 export const deleteAdminUser = (userId: string) =>
     apiRequest<{ ok: boolean }>(`/api/admin/users/${userId}`, {
+        method: 'DELETE',
+    });
+
+export const verifyEventAttendance = (eventId: string, userId: string) =>
+    apiRequest<{ success: boolean; event: HiveEvent; user: User }>(`/api/events/${eventId}/attendance`, {
+        method: 'POST',
+        body: { userId },
+    });
+
+export const reportPost = (postId: string, reason: string) =>
+    apiRequest<{ success: boolean; report: any }>(`/api/posts/${postId}/report`, {
+        method: 'POST',
+        body: { reason },
+    });
+
+export const getAdminReports = () =>
+    apiRequest<{ reports: any[] }>('/api/admin/reports');
+
+export const deleteAdminReport = (reportId: string) =>
+    apiRequest<{ ok: boolean }>(`/api/admin/reports/${reportId}`, {
         method: 'DELETE',
     });
