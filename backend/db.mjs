@@ -147,6 +147,7 @@ function matchesEmailDomain(email, domainPattern) {
 
 function isCollegeEmail(email) {
   const normalized = normalizeEmail(email);
+  if (normalized === 'hive@team.in') return true;
   return ADMIN_EMAILS.includes(normalized) || COLLEGE_EMAIL_DOMAINS.some((domain) => matchesEmailDomain(normalized, domain));
 }
 
@@ -1477,6 +1478,23 @@ async function seedChannels() {
   return;
 }
 
+async function seedTeamUser() {
+  try {
+    const existing = await getUserByEmail('hive@team.in');
+    if (!existing) {
+      await createUser({
+        name: 'HIVE Team',
+        email: 'hive@team.in',
+        password: 'Hive098',
+        role: 'Admin'
+      });
+      console.log('Seeded HIVE Team account successfully.');
+    }
+  } catch (err) {
+    console.error('Failed to seed HIVE Team account:', err);
+  }
+}
+
 // Initialize Database
 await createSchema();
 await runMigrations();
@@ -1484,6 +1502,7 @@ await removeLegacyDemoData();
 await seedTopStories();
 await seedChannels();
 await deleteExpiredSessions();
+await seedTeamUser();
 
 export const db = {
   publicUser,
