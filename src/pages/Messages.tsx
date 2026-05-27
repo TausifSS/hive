@@ -23,6 +23,7 @@ const MessagesPage = () => {
     const [isReportModalOpen, setIsReportModalOpen] = useState(false);
     const [reportReason, setReportReason] = useState('');
     const [reportingMessageId, setReportingMessageId] = useState<string | null>(null);
+    const [activeMessageMenuId, setActiveMessageMenuId] = useState<string | null>(null);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const typingTimeoutRef = useRef<number | null>(null);
@@ -256,6 +257,16 @@ const MessagesPage = () => {
         };
     }, [userId, conversation, currentUser]);
 
+    useEffect(() => {
+        const handleGlobalClick = () => {
+            setActiveMessageMenuId(null);
+        };
+        window.addEventListener('click', handleGlobalClick);
+        return () => {
+            window.removeEventListener('click', handleGlobalClick);
+        };
+    }, []);
+
     // Handle searching users
     const handleSearchChange = (e: ChangeEvent<HTMLInputElement>) => {
         const query = e.target.value;
@@ -485,25 +496,65 @@ const MessagesPage = () => {
                                 const isMine = message.senderId === currentUser?.id;
                                 return (
                                     <div key={message.id} style={{ ...styles.bubbleRow, justifyContent: isMine ? 'flex-end' : 'flex-start', alignItems: 'center', gap: '8px' }}>
-                                        {!isMine && (
-                                            <button
-                                                onClick={() => handleReportMessage(message.id)}
-                                                style={{
-                                                    background: 'none',
-                                                    border: 'none',
-                                                    cursor: 'pointer',
-                                                    fontSize: '14px',
-                                                    opacity: 0.4,
-                                                    padding: '4px',
-                                                    display: 'inline-flex',
-                                                    alignItems: 'center',
-                                                    transition: 'opacity 0.2s',
-                                                }}
-                                                title="Report message"
-                                            >
-                                                🚩
-                                            </button>
+                                        {isMine && (
+                                            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setActiveMessageMenuId(activeMessageMenuId === message.id ? null : message.id);
+                                                    }}
+                                                    style={{
+                                                        background: 'none',
+                                                        border: 'none',
+                                                        cursor: 'pointer',
+                                                        padding: '6px',
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        opacity: 0.4,
+                                                        transition: 'opacity 0.2s',
+                                                    }}
+                                                    title="Message options"
+                                                >
+                                                    <MoreVertical size={14} color="#4B5563" />
+                                                </button>
+                                                {activeMessageMenuId === message.id && (
+                                                    <div style={{
+                                                        position: 'absolute',
+                                                        right: '8px',
+                                                        top: '24px',
+                                                        backgroundColor: 'white',
+                                                        borderRadius: '6px',
+                                                        boxShadow: '0 2px 10px rgba(0,0,0,0.15)',
+                                                        border: '1px solid #E5E7EB',
+                                                        zIndex: 10,
+                                                        width: '120px',
+                                                        display: 'flex',
+                                                        flexDirection: 'column',
+                                                        overflow: 'hidden'
+                                                    }}>
+                                                        <button
+                                                            onClick={() => {
+                                                                setActiveMessageMenuId(null);
+                                                                handleUnsendMessage(message.id);
+                                                            }}
+                                                            style={{
+                                                                padding: '8px 12px',
+                                                                background: 'none',
+                                                                border: 'none',
+                                                                textAlign: 'left',
+                                                                fontSize: '13px',
+                                                                color: '#EF4444',
+                                                                cursor: 'pointer',
+                                                                fontWeight: 600,
+                                                            }}
+                                                        >
+                                                            Unsend
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
                                         )}
+
                                         <div style={{ ...styles.bubble, ...(isMine ? styles.myBubble : styles.theirBubble) }}>
                                             {message.mediaUrl && (
                                                 <div style={{ marginBottom: '6px' }}>
@@ -543,24 +594,64 @@ const MessagesPage = () => {
                                                 {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                             </span>
                                         </div>
-                                        {isMine && (
-                                            <button
-                                                onClick={() => handleUnsendMessage(message.id)}
-                                                style={{
-                                                    background: 'none',
-                                                    border: 'none',
-                                                    cursor: 'pointer',
-                                                    fontSize: '14px',
-                                                    opacity: 0.4,
-                                                    padding: '4px',
-                                                    display: 'inline-flex',
-                                                    alignItems: 'center',
-                                                    transition: 'opacity 0.2s',
-                                                }}
-                                                title="Unsend message"
-                                            >
-                                                🗑️
-                                            </button>
+
+                                        {!isMine && (
+                                            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setActiveMessageMenuId(activeMessageMenuId === message.id ? null : message.id);
+                                                    }}
+                                                    style={{
+                                                        background: 'none',
+                                                        border: 'none',
+                                                        cursor: 'pointer',
+                                                        padding: '6px',
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        opacity: 0.4,
+                                                        transition: 'opacity 0.2s',
+                                                    }}
+                                                    title="Message options"
+                                                >
+                                                    <MoreVertical size={14} color="#4B5563" />
+                                                </button>
+                                                {activeMessageMenuId === message.id && (
+                                                    <div style={{
+                                                        position: 'absolute',
+                                                        left: '8px',
+                                                        top: '24px',
+                                                        backgroundColor: 'white',
+                                                        borderRadius: '6px',
+                                                        boxShadow: '0 2px 10px rgba(0,0,0,0.15)',
+                                                        border: '1px solid #E5E7EB',
+                                                        zIndex: 10,
+                                                        width: '120px',
+                                                        display: 'flex',
+                                                        flexDirection: 'column',
+                                                        overflow: 'hidden'
+                                                    }}>
+                                                        <button
+                                                            onClick={() => {
+                                                                setActiveMessageMenuId(null);
+                                                                handleReportMessage(message.id);
+                                                            }}
+                                                            style={{
+                                                                padding: '8px 12px',
+                                                                background: 'none',
+                                                                border: 'none',
+                                                                textAlign: 'left',
+                                                                fontSize: '13px',
+                                                                color: '#EF4444',
+                                                                cursor: 'pointer',
+                                                                fontWeight: 600,
+                                                            }}
+                                                        >
+                                                            Report
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
                                         )}
                                     </div>
                                 );
