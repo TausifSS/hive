@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
-import { ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
-import { getTopStories } from '../lib/api';
+import { ChevronDown, ChevronUp, RefreshCw, Plus, X } from 'lucide-react';
+import { getTopStories, createTopStory } from '../lib/api';
 import type { TopStory } from '../lib/api';
+import { useAuth } from '../context/AuthContext';
 
 const formatStoryDate = (date: string) =>
     new Date(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
@@ -24,10 +25,19 @@ const StoryCard = ({ story, isExpanded, onToggle }: { story: TopStory; isExpande
 );
 
 const TopStoriesPage = () => {
+    const { user } = useAuth();
     const [stories, setStories] = useState<TopStory[]>([]);
     const [expandedStoryId, setExpandedStoryId] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState('');
+
+    // Create story form state
+    const [isCreateOpen, setIsCreateOpen] = useState(false);
+    const [title, setTitle] = useState('');
+    const [summary, setSummary] = useState('');
+    const [bodyText, setBodyText] = useState('');
+    const [category, setCategory] = useState('Official');
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     const loadStories = async () => {
         setIsLoading(true);
@@ -47,6 +57,31 @@ const TopStoriesPage = () => {
         void loadStories();
     }, []);
 
+    const handleCreateStory = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!title.trim() || !summary.trim()) return;
+
+        setIsSubmitting(true);
+        try {
+            await createTopStory({
+                title: title.trim(),
+                summary: summary.trim(),
+                body: bodyText.trim() || summary.trim(),
+                category: category
+            });
+            setTitle('');
+            setSummary('');
+            setBodyText('');
+            setCategory('Official');
+            setIsCreateOpen(false);
+            await loadStories();
+        } catch (err) {
+            alert('Failed to publish story: ' + (err instanceof Error ? err.message : 'Unknown error'));
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
     return (
         <div style={styles.container}>
             <div style={styles.header}>
@@ -54,11 +89,84 @@ const TopStoriesPage = () => {
                     <h1 style={styles.pageTitle}>Top Stories</h1>
                     <p style={styles.pageSubtitle}>Official updates from the HIVE backend.</p>
                 </div>
-                <button style={styles.refreshButton} onClick={loadStories} disabled={isLoading}>
-                    <RefreshCw size={16} />
-                    Refresh
-                </button>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    {user && (user.role === 'Admin' || user.role === 'club_admin') && (
+                        <button style={styles.createButton} onClick={() => setIsCreateOpen(!isCreateOpen)}>
+                            <Plus size={16} />
+                            Create Update
+                        </button>
+                    )}
+                    <button style={styles.refreshButton} onClick={loadStories} disabled={isLoading}>
+                        <RefreshCw size={16} />
+                        Refresh
+                    </button>
+                </div>
             </div>
+
+            {isCreateOpen && (
+                <form onSubmit={handleCreateStory} style={styles.createForm}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                        <h3 style={{ fontSize: '18px', fontWeight: 'bold', color: '#111827', margin: 0 }}>Create Announcement / Update</h3>
+                        <button type="button" onClick={() => setIsCreateOpen(false)} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: '4px' }}>
+                            <X size={18} color="#4B5563" />
+                        </button>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <div>
+                            <label style={styles.formLabel}>Title</label>
+                            <input 
+                                type="text" 
+                                placeholder="e.g. End Semester Exam Schedule Announced" 
+                                value={title}
+                                onChange={(e) => setTitle(e.target.value)}
+                                style={styles.formInput}
+                                required
+                            />
+                        </div>
+                        <div>
+                            <label style={styles.formLabel}>Category</label>
+                            <select 
+                                value={category} 
+                                onChange={(e) => setCategory(e.target.value)} 
+                                style={styles.formSelect}
+                            >
+                                <option value="Official">Official</option>
+                                <option value="Events">Events</option>
+                                <option value="Placements">Placements</option>
+                                <option value="Clubs">Clubs</option>
+                                <option value="Platform">Platform</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label style={styles.formLabel}>Short Summary</label>
+                            <input 
+                                type="text" 
+                                placeholder="Brief 1-sentence summary of the update..." 
+                                value={summary}
+                                onChange={(e) => setSummary(e.target.value)}
+                                style={styles.formInput}
+                                required
+                            />
+                        </div>
+                        <div>
+                            <label style={styles.formLabel}>Full Content (Optional)</label>
+                            <textarea 
+                                placeholder="Detailed details/body of the update..." 
+                                value={bodyText}
+                                onChange={(e) => setBodyText(e.target.value)}
+                                style={styles.formTextarea}
+                            />
+                        </div>
+                        <button 
+                            type="submit" 
+                            disabled={isSubmitting || !title.trim() || !summary.trim()} 
+                            style={{ ...styles.submitButton, ...(isSubmitting ? styles.disabledBtn : {}) }}
+                        >
+                            {isSubmitting ? 'Publishing...' : 'Publish Update'}
+                        </button>
+                    </div>
+                </form>
+            )}
 
             {isLoading ? (
                 <div style={styles.messageBox}>Loading stories...</div>
@@ -184,6 +292,82 @@ const styles: { [key: string]: CSSProperties } = {
         borderRadius: '12px',
         color: '#DC2626',
         padding: '16px',
+    },
+    createButton: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        borderRadius: '10px',
+        backgroundColor: 'var(--brand-purple)',
+        color: 'white',
+        border: 'none',
+        padding: '10px 16px',
+        fontWeight: 700,
+        cursor: 'pointer',
+    },
+    createForm: {
+        backgroundColor: 'white',
+        borderRadius: '12px',
+        padding: '20px',
+        border: '1px solid #E5E7EB',
+        marginBottom: '24px',
+        boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
+        textAlign: 'left',
+    },
+    formLabel: {
+        display: 'block',
+        fontSize: '13px',
+        fontWeight: 'bold',
+        color: '#4B5563',
+        marginBottom: '6px',
+    },
+    formInput: {
+        width: '100%',
+        padding: '10px 12px',
+        border: '1px solid #D1D5DB',
+        borderRadius: '8px',
+        fontSize: '14px',
+        outline: 'none',
+        backgroundColor: '#F9FAFB',
+        boxSizing: 'border-box',
+    },
+    formSelect: {
+        width: '100%',
+        padding: '10px 12px',
+        border: '1px solid #D1D5DB',
+        borderRadius: '8px',
+        fontSize: '14px',
+        outline: 'none',
+        backgroundColor: '#F9FAFB',
+        boxSizing: 'border-box',
+    },
+    formTextarea: {
+        width: '100%',
+        height: '100px',
+        padding: '10px 12px',
+        border: '1px solid #D1D5DB',
+        borderRadius: '8px',
+        fontSize: '14px',
+        outline: 'none',
+        backgroundColor: '#F9FAFB',
+        resize: 'vertical',
+        boxSizing: 'border-box',
+    },
+    submitButton: {
+        width: '100%',
+        padding: '12px',
+        border: 'none',
+        borderRadius: '8px',
+        backgroundColor: 'var(--brand-purple)',
+        color: 'white',
+        fontWeight: 'bold',
+        cursor: 'pointer',
+        fontSize: '14px',
+        marginTop: '8px',
+    },
+    disabledBtn: {
+        opacity: 0.6,
+        cursor: 'not-allowed',
     },
 };
 

@@ -584,6 +584,7 @@ async function handleRoute(req, res) {
   }
 
   if (url.pathname === '/api/stories' && req.method === 'GET') {
+    await db.deleteExpiredTopStories();
     const stories = await db.listTopStories();
     send(req, res, 200, { stories });
     return;
@@ -595,7 +596,7 @@ async function handleRoute(req, res) {
       send(req, res, 401, { error: 'Authentication required' });
       return;
     }
-    if (!isAdmin(currentUser)) {
+    if (!isAdmin(currentUser) && currentUser.role !== 'club_admin') {
       sendForbidden(req, res);
       return;
     }

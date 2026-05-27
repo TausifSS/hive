@@ -242,6 +242,11 @@ async function deleteExpiredSessions() {
   await dbQueryRun('DELETE FROM auth_otps WHERE expires_at <= ? OR consumed_at IS NOT NULL', [now]);
 }
 
+async function deleteExpiredTopStories() {
+  const cutOffTime = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+  await dbQueryRun('DELETE FROM top_stories WHERE created_at < ?', [cutOffTime]);
+}
+
 function camelUser(row) {
   if (!row) return null;
   return {
@@ -1502,6 +1507,7 @@ await removeLegacyDemoData();
 await seedTopStories();
 await seedChannels();
 await deleteExpiredSessions();
+await deleteExpiredTopStories();
 await seedTeamUser();
 
 export const db = {
@@ -1562,6 +1568,7 @@ export const db = {
   listTopStories,
   getTopStoryById,
   createTopStory,
+  deleteExpiredTopStories,
   createPostReport,
   listPostReports,
   deletePostReport,
