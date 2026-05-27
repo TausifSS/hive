@@ -1173,6 +1173,104 @@ async function handleRoute(req, res) {
     return;
   }
 
+  // Conversation Message Unsend (Delete)
+  if (pathParts[0] === 'api' && pathParts[1] === 'conversations' && pathParts[2] === 'messages' && pathParts[3] && req.method === 'DELETE') {
+    const currentUser = await requireUser(req);
+    if (!currentUser) {
+      send(req, res, 401, { error: 'Authentication required' });
+      return;
+    }
+    const result = await db.deleteConversationMessage(pathParts[3], currentUser.id);
+    if (result.error === 'not-found') {
+      notFound(req, res);
+      return;
+    }
+    if (result.error === 'forbidden') {
+      send(req, res, 403, { error: 'You can only unsend your own messages' });
+      return;
+    }
+    // Broadcast message deletion via SSE
+    broadcast('message_deleted', { conversationId: result.conversationId, messageId: pathParts[3] });
+    send(req, res, 200, { ok: true });
+    return;
+  }
+
+  // Channel Message Unsend (Delete)
+  if (pathParts[0] === 'api' && pathParts[1] === 'chat' && pathParts[2] === 'channels' && pathParts[3] === 'messages' && pathParts[4] && req.method === 'DELETE') {
+    const currentUser = await requireUser(req);
+    if (!currentUser) {
+      send(req, res, 401, { error: 'Authentication required' });
+      return;
+    }
+    const result = await db.deleteChannelMessage(pathParts[4], currentUser.id);
+    if (result.error === 'not-found') {
+      notFound(req, res);
+      return;
+    }
+    if (result.error === 'forbidden') {
+      send(req, res, 403, { error: 'You can only unsend your own messages' });
+      return;
+    }
+    // Broadcast channel message deletion via SSE
+    broadcast('channel_message_deleted', { channelId: result.channelId, messageId: pathParts[4] });
+    send(req, res, 200, { ok: true });
+    return;
+  }
+
+  // Conversation Auto-Delete Settings Update
+  if (pathParts[0] === 'api' && pathParts[1] === 'conversations' && pathParts[2] && pathParts[3] === 'settings' && req.method === 'PATCH') {
+    const currentUser = await requireUser(req);
+    if (!currentUser) {
+      send(req, res, 401, { error: 'Authentication required' });
+      return;
+    }
+    const body = await parseBody(req);
+    const autoDeleteHours = Number(body.autoDeleteHours || 0);
+    
+    await db.updateConversationSettings(pathParts[2], autoDeleteHours);
+    // Broadcast settings update via SSE
+    broadcast('settings_updated', { type: 'conversation', id: pathParts[2], autoDeleteHours });
+    
+    send(req, res, 200, { ok: true });
+    return;
+  }
+
+  // Channel Auto-Delete Settings Update
+  if (pathParts[0] === 'api' && pathParts[1] === 'chat' && pathParts[2] === 'channels' && pathParts[3] && pathParts[4] === 'settings' && req.method === 'PATCH') {
+    const currentUser = await requireUser(req);
+    if (!currentUser) {
+      send(req, res, 401, { error: 'Authentication required' });
+      return;
+    }
+    const body = await parseBody(req);
+    const autoDeleteHours = Number(body.autoDeleteHours || 0);
+    
+    await db.updateChannelSettings(pathParts[3], autoDeleteHours);
+    // Broadcast settings update via SSE
+    broadcast('settings_updated', { type: 'channel', id: pathParts[3], autoDeleteHours });
+    
+    send(req, res, 200, { ok: true });
+    return;
+  }
+
+  // Chat Reporting API
+  if (url.pathname === '/api/reports/chat' && req.method === 'POST') {
+    const currentUser = await requireUser(req);
+    if (!currentUser) {
+      send(req, res, 401, { error: 'Authentication required' });
+      return;
+    }
+    const body = await parseBody(req);
+    if (!body.type || !body.targetId || !body.reason) {
+      send(req, res, 400, { error: 'type, targetId, and reason are required' });
+      return;
+    }
+    
+    const result = await db.createChatReport(body.type, body.targetId, currentUser.id, body.reason);
+    send(req, res, 201, result);
+    return;
+  }
+
   if (url.pathname === '/api/chat/channels' && req.method === 'GET') {
     const currentUser = await requireUser(req);
     if (!currentUser) {

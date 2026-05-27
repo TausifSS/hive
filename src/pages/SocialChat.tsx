@@ -1,9 +1,9 @@
 import { useEffect, useState, useRef } from 'react';
 import type { CSSProperties, KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { Send, Hash, BookOpen, Users, Plus, ArrowLeft, RefreshCw, MessageSquare } from 'lucide-react';
+import { Send, Hash, BookOpen, Users, Plus, ArrowLeft, RefreshCw, MessageSquare, MoreVertical } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { getChannels, createChannel, getChannelMessages, sendChannelMessage } from '../lib/api';
+import { getChannels, createChannel, getChannelMessages, sendChannelMessage, deleteChannelMessage, updateChannelSettings, reportChat } from '../lib/api';
 import type { ChannelMessage, Channel } from '../lib/api';
 
 const SocialChatPage = () => {
@@ -28,6 +28,12 @@ const SocialChatPage = () => {
     const [isCreateOpen, setIsCreateOpen] = useState(false);
     const [newChannelName, setNewChannelName] = useState('');
 
+    // Popup settings and report states
+    const [isMenuOpen, setIsMenuOpen] = useState(false);
+    const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+    const [reportReason, setReportReason] = useState('');
+    const [reportingMessageId, setReportingMessageId] = useState<string | null>(null);
+
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     const [isDesktop, setIsDesktop] = useState(window.innerWidth > 1024);
@@ -42,6 +48,14 @@ const SocialChatPage = () => {
         try {
             const res = await getChannels();
             setChannels(res.channels);
+            if (res.channels.length > 0) {
+                const hasActive = res.channels.some(c => c.id === activeTab);
+                if (!hasActive || activeTab === 'global') {
+                    setActiveTab(res.channels[0].id);
+                }
+            } else {
+                setActiveTab('');
+            }
         } catch (err) {
             console.error('Failed to load channels', err);
         } finally {
@@ -93,9 +107,31 @@ const SocialChatPage = () => {
             }
         };
 
+        const handleChannelMessageDeleted = (e: Event) => {
+            const detail = (e as CustomEvent).detail;
+            if (detail.channelId === activeTab) {
+                setMessages((prev) => prev.filter(m => m.id !== detail.messageId));
+            }
+        };
+
+        const handleSettingsUpdated = (e: Event) => {
+            const detail = (e as CustomEvent).detail;
+            if (detail.type === 'channel' && detail.id === activeTab) {
+                setChannels((prev) => prev.map(c => c.id === detail.id ? { ...c, autoDeleteHours: detail.autoDeleteHours } : c));
+                if (detail.autoDeleteHours > 0) {
+                    const cutOff = Date.now() - detail.autoDeleteHours * 60 * 60 * 1000;
+                    setMessages((prev) => prev.filter(m => new Date(m.createdAt).getTime() >= cutOff));
+                }
+            }
+        };
+
         window.addEventListener('api-channel-message', handleIncomingChannelMessage);
+        window.addEventListener('api-channel-message-deleted', handleChannelMessageDeleted);
+        window.addEventListener('api-settings-updated', handleSettingsUpdated);
         return () => {
             window.removeEventListener('api-channel-message', handleIncomingChannelMessage);
+            window.removeEventListener('api-channel-message-deleted', handleChannelMessageDeleted);
+            window.removeEventListener('api-settings-updated', handleSettingsUpdated);
         };
     }, [activeTab]);
 
@@ -139,6 +175,57 @@ const SocialChatPage = () => {
     const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
         if (event.key === 'Enter') {
             void handleSend();
+        }
+    };
+
+    const handleToggleAutoDelete = async () => {
+        if (!activeTab) return;
+        setIsMenuOpen(false);
+        const currentChannel = channels.find(c => c.id === activeTab);
+        const nextVal = currentChannel?.autoDeleteHours === 12 ? 0 : 12;
+        try {
+            await updateChannelSettings(activeTab, nextVal);
+            setChannels(prev => prev.map(c => c.id === activeTab ? { ...c, autoDeleteHours: nextVal } : c));
+        } catch (err) {
+            alert('Failed to update settings');
+        }
+    };
+
+    const handleReportChannel = () => {
+        setIsMenuOpen(false);
+        setReportingMessageId(null);
+        setReportReason('');
+        setIsReportModalOpen(true);
+    };
+
+    const handleReportMessage = (messageId: string) => {
+        setReportingMessageId(messageId);
+        setReportReason('');
+        setIsReportModalOpen(true);
+    };
+
+    const handleSubmitReport = async () => {
+        if (!reportReason.trim()) return;
+        try {
+            if (reportingMessageId) {
+                await reportChat('channel_message', reportingMessageId, reportReason.trim());
+            } else if (activeTab) {
+                await reportChat('channel', activeTab, reportReason.trim());
+            }
+            alert('Report submitted successfully.');
+            setIsReportModalOpen(false);
+        } catch (err) {
+            alert('Failed to submit report');
+        }
+    };
+
+    const handleUnsendMessage = async (messageId: string) => {
+        if (!window.confirm('Are you sure you want to unsend this message?')) return;
+        try {
+            await deleteChannelMessage(activeTab, messageId);
+            setMessages(prev => prev.filter(m => m.id !== messageId));
+        } catch (err) {
+            alert(err instanceof Error ? err.message : 'Failed to unsend message');
         }
     };
 
@@ -208,51 +295,55 @@ const SocialChatPage = () => {
                     <div style={styles.emptyCustom}>Loading communities...</div>
                 ) : (
                     <>
-                        <div style={styles.categoryGroup}>
-                            <div style={styles.categoryTitle}>
-                                <BookOpen size={14} style={{ marginRight: '6px' }} />
-                                <span>Academic</span>
+                        {groupedChannels.academic.length > 0 && (
+                            <div style={styles.categoryGroup}>
+                                <div style={styles.categoryTitle}>
+                                    <BookOpen size={14} style={{ marginRight: '6px' }} />
+                                    <span>Academic</span>
+                                </div>
+                                {groupedChannels.academic.map((chan) => (
+                                    <button
+                                        key={chan.id}
+                                        style={{
+                                            ...styles.channelItem,
+                                            ...(activeTab === chan.id ? styles.activeChannelItem : {})
+                                        }}
+                                        onClick={() => {
+                                            setActiveTab(chan.id);
+                                            setShowMobileList(false);
+                                        }}
+                                    >
+                                        <span style={styles.hashIcon}>#</span>
+                                        <span style={styles.channelItemName}>{chan.name}</span>
+                                    </button>
+                                ))}
                             </div>
-                            {groupedChannels.academic.map((chan) => (
-                                <button
-                                    key={chan.id}
-                                    style={{
-                                        ...styles.channelItem,
-                                        ...(activeTab === chan.id ? styles.activeChannelItem : {})
-                                    }}
-                                    onClick={() => {
-                                        setActiveTab(chan.id);
-                                        setShowMobileList(false);
-                                    }}
-                                >
-                                    <span style={styles.hashIcon}>#</span>
-                                    <span style={styles.channelItemName}>{chan.name}</span>
-                                </button>
-                            ))}
-                        </div>
+                        )}
 
-                        <div style={styles.categoryGroup}>
-                            <div style={styles.categoryTitle}>
-                                <Users size={14} style={{ marginRight: '6px' }} />
-                                <span>Clubs</span>
+                        {groupedChannels.club.length > 0 && (
+                            <div style={styles.categoryGroup}>
+                                <div style={styles.categoryTitle}>
+                                    <Users size={14} style={{ marginRight: '6px' }} />
+                                    <span>Clubs</span>
+                                </div>
+                                {groupedChannels.club.map((chan) => (
+                                    <button
+                                        key={chan.id}
+                                        style={{
+                                            ...styles.channelItem,
+                                            ...(activeTab === chan.id ? styles.activeChannelItem : {})
+                                        }}
+                                        onClick={() => {
+                                            setActiveTab(chan.id);
+                                            setShowMobileList(false);
+                                        }}
+                                    >
+                                        <span style={styles.hashIcon}>#</span>
+                                        <span style={styles.channelItemName}>{chan.name}</span>
+                                    </button>
+                                ))}
                             </div>
-                            {groupedChannels.club.map((chan) => (
-                                <button
-                                    key={chan.id}
-                                    style={{
-                                        ...styles.channelItem,
-                                        ...(activeTab === chan.id ? styles.activeChannelItem : {})
-                                    }}
-                                    onClick={() => {
-                                        setActiveTab(chan.id);
-                                        setShowMobileList(false);
-                                    }}
-                                >
-                                    <span style={styles.hashIcon}>#</span>
-                                    <span style={styles.channelItemName}>{chan.name}</span>
-                                </button>
-                            ))}
-                        </div>
+                        )}
 
                         <div style={styles.categoryGroup}>
                             <div style={{ ...styles.categoryTitle, justifyContent: 'space-between' }}>
@@ -314,35 +405,144 @@ const SocialChatPage = () => {
         </div>
     );
 
-    const renderChatArea = () => (
-        <div style={styles.chatArea}>
-            <style>{`
-                @keyframes spin {
-                    0% { transform: rotate(0deg); }
-                    100% { transform: rotate(360deg); }
-                }
-                .spin-animation {
-                    animation: spin 1s linear infinite;
-                }
-            `}</style>
-            <div style={styles.channelHeader}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    {!isDesktop && (
-                        <button 
-                            onClick={() => setShowMobileList(true)}
-                            style={{ border: 'none', background: 'none', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center' }}
-                            aria-label="Back to channels list"
-                        >
-                            <ArrowLeft size={20} color="var(--primary-dark)" />
-                        </button>
-                    )}
-                    <h1 style={styles.channelTitle}>#{channelName}</h1>
+    const renderChatArea = () => {
+        if (channels.length === 0 || !activeTab) {
+            return (
+                <div style={{
+                    flex: 1,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '40px 24px',
+                    textAlign: 'center',
+                    backgroundColor: '#F3F4F6',
+                    height: '100%'
+                }}>
+                    <MessageSquare size={64} color="#9CA3AF" style={{ marginBottom: '20px' }} />
+                    <h2 style={{ fontSize: '20px', fontWeight: 'bold', color: '#1F2937', marginBottom: '8px' }}>No Communities Yet</h2>
+                    <p style={{ fontSize: '15px', color: '#6B7280', maxWidth: '320px', marginBottom: '24px' }}>
+                        Create a custom channel or community to start discussions with other students.
+                    </p>
+                    <button
+                        onClick={() => setIsCreateOpen(true)}
+                        style={{
+                            padding: '12px 24px',
+                            backgroundColor: 'var(--brand-purple)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '24px',
+                            fontWeight: '600',
+                            fontSize: '15px',
+                            cursor: 'pointer',
+                            boxShadow: '0 4px 12px rgba(106, 75, 255, 0.25)'
+                        }}
+                    >
+                        Create Community
+                    </button>
                 </div>
-                <button style={styles.refreshButton} onClick={loadMessages} disabled={isMessagesLoading} aria-label="Refresh messages">
-                    <RefreshCw size={16} className={isMessagesLoading ? "spin-animation" : ""} style={{ marginRight: '6px' }} />
-                    <span>Refresh</span>
-                </button>
-            </div>
+            );
+        }
+
+        const activeChannel = channels.find(c => c.id === activeTab);
+
+        return (
+            <div style={styles.chatArea}>
+                <style>{`
+                    @keyframes spin {
+                        0% { transform: rotate(0deg); }
+                        100% { transform: rotate(360deg); }
+                    }
+                    .spin-animation {
+                        animation: spin 1s linear infinite;
+                    }
+                `}</style>
+                <div style={styles.channelHeader}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
+                        {!isDesktop && (
+                            <button 
+                                onClick={() => setShowMobileList(true)}
+                                style={{ border: 'none', background: 'none', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center' }}
+                                aria-label="Back to channels list"
+                            >
+                                <ArrowLeft size={20} color="var(--primary-dark)" />
+                            </button>
+                        )}
+                        <h1 style={styles.channelTitle}>#{channelName}</h1>
+                    </div>
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <button style={styles.refreshButton} onClick={loadMessages} disabled={isMessagesLoading} aria-label="Refresh messages">
+                            <RefreshCw size={16} className={isMessagesLoading ? "spin-animation" : ""} style={{ marginRight: '6px' }} />
+                            <span>Refresh</span>
+                        </button>
+                        
+                        <div style={{ position: 'relative' }}>
+                            <button 
+                                onClick={() => setIsMenuOpen(!isMenuOpen)} 
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px', display: 'flex', alignItems: 'center' }}
+                                aria-label="Community settings"
+                            >
+                                <MoreVertical size={20} color="#4B5563" />
+                            </button>
+                            {isMenuOpen && (
+                                <div style={{
+                                    position: 'absolute',
+                                    right: 0,
+                                    top: '40px',
+                                    backgroundColor: 'white',
+                                    borderRadius: '8px',
+                                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                                    border: '1px solid #E5E7EB',
+                                    zIndex: 100,
+                                    width: '220px',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    overflow: 'hidden'
+                                }}>
+                                    <button
+                                        onClick={handleToggleAutoDelete}
+                                        style={{
+                                            padding: '12px 16px',
+                                            background: 'none',
+                                            border: 'none',
+                                            textAlign: 'left',
+                                            fontSize: '14px',
+                                            color: '#374151',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            borderBottom: '1px solid #F3F4F6'
+                                        }}
+                                    >
+                                        <span>12-Hour Auto Delete</span>
+                                        <span style={{
+                                            color: activeChannel?.autoDeleteHours === 12 ? 'var(--brand-purple)' : '#9CA3AF',
+                                            fontWeight: 'bold'
+                                        }}>
+                                            {activeChannel?.autoDeleteHours === 12 ? 'ON' : 'OFF'}
+                                        </span>
+                                    </button>
+                                    <button
+                                        onClick={handleReportChannel}
+                                        style={{
+                                            padding: '12px 16px',
+                                            background: 'none',
+                                            border: 'none',
+                                            textAlign: 'left',
+                                            fontSize: '14px',
+                                            color: '#EF4444',
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        Report Community
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
 
             <div style={styles.messagesContainerWrapper}>
                 <div style={styles.messageContainer}>
@@ -356,7 +556,26 @@ const SocialChatPage = () => {
                         messages.map((message) => {
                             const isMine = message.senderId === user?.id;
                             return (
-                                <div key={message.id} style={{ ...styles.messageRow, justifyContent: isMine ? 'flex-end' : 'flex-start' }}>
+                                <div key={message.id} style={{ ...styles.messageRow, justifyContent: isMine ? 'flex-end' : 'flex-start', alignItems: 'center', gap: '8px' }}>
+                                    {!isMine && (
+                                        <button
+                                            onClick={() => handleReportMessage(message.id)}
+                                            style={{
+                                                background: 'none',
+                                                border: 'none',
+                                                cursor: 'pointer',
+                                                fontSize: '14px',
+                                                opacity: 0.4,
+                                                padding: '4px',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                transition: 'opacity 0.2s',
+                                            }}
+                                            title="Report message"
+                                        >
+                                            🚩
+                                        </button>
+                                    )}
                                     {!isMine && (
                                         <Link to={`/profile/${message.author?.id || message.senderId}`}>
                                             <img
@@ -410,14 +629,110 @@ const SocialChatPage = () => {
                                             {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                         </span>
                                     </div>
+                                    {isMine && (
+                                        <button
+                                            onClick={() => handleUnsendMessage(message.id)}
+                                            style={{
+                                                background: 'none',
+                                                border: 'none',
+                                                cursor: 'pointer',
+                                                fontSize: '14px',
+                                                opacity: 0.4,
+                                                padding: '4px',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                transition: 'opacity 0.2s',
+                                            }}
+                                            title="Unsend message"
+                                        >
+                                            🗑️
+                                        </button>
+                                    )}
                                 </div>
                             );
                         })
                     )}
                     <div ref={messagesEndRef} />
+                    
+                    {isReportModalOpen && (
+                        <div style={{
+                            position: 'fixed',
+                            top: 0, left: 0, right: 0, bottom: 0,
+                            backgroundColor: 'rgba(0,0,0,0.5)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            zIndex: 1000,
+                            padding: '20px'
+                        }}>
+                            <div style={{
+                                backgroundColor: 'white',
+                                padding: '24px',
+                                borderRadius: '16px',
+                                width: '100%',
+                                maxWidth: '400px',
+                                boxShadow: '0 10px 25px rgba(0,0,0,0.2)'
+                            }}>
+                                <h3 style={{ fontSize: '18px', fontWeight: 'bold', margin: '0 0 12px 0', color: '#111827' }}>
+                                    Report {reportingMessageId ? 'Message' : 'Community'}
+                                </h3>
+                                <p style={{ fontSize: '14px', color: '#4B5563', margin: '0 0 16px 0' }}>
+                                    Please specify the reason for reporting this content.
+                                </p>
+                                <textarea
+                                    value={reportReason}
+                                    onChange={(e) => setReportReason(e.target.value)}
+                                    placeholder="e.g., Harassment, spam, or inappropriate behavior..."
+                                    style={{
+                                        width: '100%',
+                                        height: '100px',
+                                        padding: '12px',
+                                        borderRadius: '8px',
+                                        border: '1px solid #D1D5DB',
+                                        outline: 'none',
+                                        fontSize: '14px',
+                                        fontFamily: 'inherit',
+                                        resize: 'none',
+                                        marginBottom: '20px'
+                                    }}
+                                />
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                                    <button
+                                        onClick={() => setIsReportModalOpen(false)}
+                                        style={{
+                                            padding: '10px 16px',
+                                            border: '1px solid #D1D5DB',
+                                            borderRadius: '8px',
+                                            backgroundColor: 'white',
+                                            cursor: 'pointer',
+                                            fontSize: '14px',
+                                            color: '#4B5563'
+                                        }}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={handleSubmitReport}
+                                        disabled={!reportReason.trim()}
+                                        style={{
+                                            padding: '10px 16px',
+                                            border: 'none',
+                                            borderRadius: '8px',
+                                            backgroundColor: '#EF4444',
+                                            color: 'white',
+                                            cursor: reportReason.trim() ? 'pointer' : 'not-allowed',
+                                            fontSize: '14px',
+                                            opacity: reportReason.trim() ? 1 : 0.6
+                                        }}
+                                    >
+                                        Submit Report
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
-
-                <div style={{ ...styles.chatInputArea, flexDirection: 'column', alignItems: 'stretch' }}>
+            </div>      <div style={{ ...styles.chatInputArea, flexDirection: 'column', alignItems: 'stretch' }}>
                     {mediaAttachment && (
                         <div style={styles.attachmentPreview}>
                             <span style={{ fontSize: '13px', color: '#4B5563', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -470,8 +785,8 @@ const SocialChatPage = () => {
                     </div>
                 </div>
             </div>
-        </div>
     );
+};
 
     if (isDesktop) {
         return (
@@ -670,10 +985,10 @@ const styles: { [key: string]: CSSProperties } = {
         cursor: 'pointer',
     },
     messageBubble: {
-        maxWidth: '75%',
-        borderRadius: '16px',
-        padding: '10px 14px',
-        boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+        maxWidth: '82%', // Expanded bubble width
+        borderRadius: '20px',
+        padding: '12px 18px', // Spacious padding
+        boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
         display: 'flex',
         flexDirection: 'column',
     },
@@ -682,6 +997,7 @@ const styles: { [key: string]: CSSProperties } = {
         color: 'white',
         borderBottomRightRadius: '4px',
         alignSelf: 'flex-end',
+        boxShadow: '0 3px 10px rgba(106, 75, 255, 0.2)',
     },
     theirBubble: {
         backgroundColor: 'white',
@@ -701,29 +1017,30 @@ const styles: { [key: string]: CSSProperties } = {
     },
     messageContent: {
         margin: 0,
-        fontSize: '14px',
-        lineHeight: 1.45,
+        fontSize: '15px', // Spacious font size
+        lineHeight: 1.5,
         wordBreak: 'break-word',
         textAlign: 'left',
     },
     messageTime: {
         display: 'block',
-        marginTop: '4px',
+        marginTop: '6px',
         fontSize: '10px',
         textAlign: 'right',
     },
     chatInputArea: {
-        padding: '12px 16px',
+        padding: '16px 20px', // More padding
         display: 'flex',
         alignItems: 'center',
         gap: '10px',
         borderTop: '1px solid var(--border-color)',
         backgroundColor: 'white',
+        boxShadow: '0 -2px 10px rgba(0,0,0,0.02)',
     },
     chatInput: {
         flex: 1,
-        padding: '12px 16px',
-        borderRadius: '24px',
+        padding: '12px 20px', // Spacious input padding
+        borderRadius: '28px',
         border: '1px solid #E5E7EB',
         backgroundColor: '#F3F4F6',
         fontSize: '15px',
@@ -741,7 +1058,7 @@ const styles: { [key: string]: CSSProperties } = {
         cursor: 'pointer',
     },
     disabledButton: {
-        opacity: 0.6,
+        opacity: 0.5,
         cursor: 'not-allowed',
     },
     modalBackdrop: {

@@ -21,13 +21,54 @@ const LoadingScreen = () => (
   <div style={{
     minHeight: '100vh',
     display: 'flex',
+    flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    color: '#6B7280',
-    backgroundColor: 'var(--background-main)',
-    fontFamily: 'system-ui, sans-serif',
+    backgroundColor: '#1E202C', // Premium dark background during start
+    fontFamily: 'system-ui, -apple-system, sans-serif',
+    color: '#FFFFFF',
   }}>
-    Checking your HIVE session...
+    <style>{`
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 0.7; transform: scale(0.96); }
+        50% { opacity: 1; transform: scale(1.04); }
+      }
+      .glowing-loader {
+        width: 56px;
+        height: 56px;
+        border: 4px solid rgba(106, 75, 255, 0.15);
+        border-top: 4px solid #6A4BFF;
+        border-right: 4px solid #8B5CF6;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        box-shadow: 0 0 20px rgba(106, 75, 255, 0.4);
+        margin-bottom: 20px;
+      }
+      .loading-brand {
+        font-size: 24px;
+        font-weight: 800;
+        letter-spacing: 0.15em;
+        background: linear-gradient(135deg, #FFF 30%, #8B5CF6 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        text-shadow: 0 2px 10px rgba(139, 92, 246, 0.35);
+        margin: 0;
+      }
+      .loading-subtext {
+        font-size: 13px;
+        color: #8A9AAB;
+        margin-top: 8px;
+        font-weight: 500;
+        animation: pulse 1.8s infinite ease-in-out;
+      }
+    `}</style>
+    <div className="glowing-loader"></div>
+    <h2 className="loading-brand">HIVE</h2>
+    <div className="loading-subtext">Initializing Secure Session...</div>
   </div>
 );
 

@@ -1,9 +1,9 @@
 import { useEffect, useState, useRef } from 'react';
 import type { CSSProperties, KeyboardEvent, ChangeEvent } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Send, Search, MessageSquare } from 'lucide-react';
+import { ArrowLeft, Send, Search, MessageSquare, MoreVertical } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { getConversation, getUser, sendConversationMessage, getConversations, getLeaderboard, getOnlineUsers } from '../lib/api';
+import { getConversation, getUser, sendConversationMessage, getConversations, getLeaderboard, getOnlineUsers, deleteConversationMessage, updateConversationSettings, reportChat } from '../lib/api';
 import type { Conversation, User } from '../lib/api';
 
 const MessagesPage = () => {
@@ -19,6 +19,10 @@ const MessagesPage = () => {
     const [typingUser, setTypingUser] = useState<{ userId: string; name: string } | null>(null);
     const [mediaAttachment, setMediaAttachment] = useState<{ data: string; name: string; type: string } | null>(null);
     const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
+    const [isMenuOpen, setIsMenuOpen] = useState(false);
+    const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+    const [reportReason, setReportReason] = useState('');
+    const [reportingMessageId, setReportingMessageId] = useState<string | null>(null);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const typingTimeoutRef = useRef<number | null>(null);
@@ -54,6 +58,68 @@ const MessagesPage = () => {
     // Auto-scroll to bottom of chat
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    };
+
+    const handleToggleAutoDelete = async () => {
+        if (!conversation) return;
+        setIsMenuOpen(false);
+        const nextVal = conversation.autoDeleteHours === 12 ? 0 : 12;
+        try {
+            await updateConversationSettings(conversation.id, nextVal);
+            setConversation(prev => {
+                if (!prev) return null;
+                return {
+                    ...prev,
+                    autoDeleteHours: nextVal
+                };
+            });
+        } catch (err) {
+            alert('Failed to update settings');
+        }
+    };
+
+    const handleReportChat = () => {
+        setIsMenuOpen(false);
+        setReportingMessageId(null);
+        setReportReason('');
+        setIsReportModalOpen(true);
+    };
+
+    const handleReportMessage = (messageId: string) => {
+        setReportingMessageId(messageId);
+        setReportReason('');
+        setIsReportModalOpen(true);
+    };
+
+    const handleSubmitReport = async () => {
+        if (!reportReason.trim()) return;
+        try {
+            if (reportingMessageId) {
+                await reportChat('message', reportingMessageId, reportReason.trim());
+            } else if (conversation) {
+                await reportChat('conversation', conversation.id, reportReason.trim());
+            }
+            alert('Report submitted successfully.');
+            setIsReportModalOpen(false);
+        } catch (err) {
+            alert('Failed to submit report');
+        }
+    };
+
+    const handleUnsendMessage = async (messageId: string) => {
+        if (!window.confirm('Are you sure you want to unsend this message?')) return;
+        try {
+            await deleteConversationMessage(messageId);
+            setConversation(prev => {
+                if (!prev) return null;
+                return {
+                    ...prev,
+                    messages: prev.messages.filter(m => m.id !== messageId)
+                };
+            });
+        } catch (err) {
+            alert(err instanceof Error ? err.message : 'Failed to unsend message');
+        }
     };
 
     // Load Chat Conversation Room
@@ -140,12 +206,50 @@ const MessagesPage = () => {
             }
         };
 
+        const handleMessageDeleted = (e: Event) => {
+            const detail = (e as CustomEvent).detail;
+            if (conversation && detail.conversationId === conversation.id) {
+                setConversation((prev) => {
+                    if (!prev) return null;
+                    return {
+                        ...prev,
+                        messages: prev.messages.filter(m => m.id !== detail.messageId)
+                    };
+                });
+            }
+        };
+
+        const handleSettingsUpdated = (e: Event) => {
+            const detail = (e as CustomEvent).detail;
+            if (conversation && detail.type === 'conversation' && detail.id === conversation.id) {
+                setConversation((prev) => {
+                    if (!prev) return null;
+                    
+                    let updatedMessages = prev.messages;
+                    if (detail.autoDeleteHours > 0) {
+                        const cutOff = Date.now() - detail.autoDeleteHours * 60 * 60 * 1000;
+                        updatedMessages = prev.messages.filter(m => new Date(m.createdAt).getTime() >= cutOff);
+                    }
+                    
+                    return {
+                        ...prev,
+                        autoDeleteHours: detail.autoDeleteHours,
+                        messages: updatedMessages
+                    };
+                });
+            }
+        };
+
         window.addEventListener('api-message', handleIncomingMessage);
         window.addEventListener('api-typing', handleIncomingTyping);
+        window.addEventListener('api-message-deleted', handleMessageDeleted);
+        window.addEventListener('api-settings-updated', handleSettingsUpdated);
 
         return () => {
             window.removeEventListener('api-message', handleIncomingMessage);
             window.removeEventListener('api-typing', handleIncomingTyping);
+            window.removeEventListener('api-message-deleted', handleMessageDeleted);
+            window.removeEventListener('api-settings-updated', handleSettingsUpdated);
             if (typingTimeoutRef.current) {
                 window.clearTimeout(typingTimeoutRef.current);
             }
@@ -300,9 +404,73 @@ const MessagesPage = () => {
                             <span style={{ ...styles.onlineBadge, bottom: '2px', right: '2px', width: '10px', height: '10px' }}></span>
                         )}
                     </div>
-                    <div>
+                    <div style={{ flex: 1 }}>
                         <h1 style={styles.userName}>{targetUser?.name || 'Messages'}</h1>
                         <p style={styles.userStatus}>@{targetUser?.handle || targetUser?.id}</p>
+                    </div>
+                    <div style={{ position: 'relative' }}>
+                        <button 
+                            onClick={() => setIsMenuOpen(!isMenuOpen)} 
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px', display: 'flex', alignItems: 'center' }}
+                            aria-label="Chat settings"
+                        >
+                            <MoreVertical size={20} color="#4B5563" />
+                        </button>
+                        {isMenuOpen && (
+                            <div style={{
+                                position: 'absolute',
+                                right: 0,
+                                top: '40px',
+                                backgroundColor: 'white',
+                                borderRadius: '8px',
+                                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                                border: '1px solid #E5E7EB',
+                                zIndex: 100,
+                                width: '220px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                overflow: 'hidden'
+                            }}>
+                                <button
+                                    onClick={handleToggleAutoDelete}
+                                    style={{
+                                        padding: '12px 16px',
+                                        background: 'none',
+                                        border: 'none',
+                                        textAlign: 'left',
+                                        fontSize: '14px',
+                                        color: '#374151',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        borderBottom: '1px solid #F3F4F6'
+                                    }}
+                                >
+                                    <span>12-Hour Auto Delete</span>
+                                    <span style={{
+                                        color: conversation?.autoDeleteHours === 12 ? 'var(--brand-purple)' : '#9CA3AF',
+                                        fontWeight: 'bold'
+                                    }}>
+                                        {conversation?.autoDeleteHours === 12 ? 'ON' : 'OFF'}
+                                    </span>
+                                </button>
+                                <button
+                                    onClick={handleReportChat}
+                                    style={{
+                                        padding: '12px 16px',
+                                        background: 'none',
+                                        border: 'none',
+                                        textAlign: 'left',
+                                        fontSize: '14px',
+                                        color: '#EF4444',
+                                        cursor: 'pointer',
+                                    }}
+                                >
+                                    Report Conversation
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </header>
 
@@ -316,7 +484,26 @@ const MessagesPage = () => {
                             {conversation.messages.map((message) => {
                                 const isMine = message.senderId === currentUser?.id;
                                 return (
-                                    <div key={message.id} style={{ ...styles.bubbleRow, justifyContent: isMine ? 'flex-end' : 'flex-start' }}>
+                                    <div key={message.id} style={{ ...styles.bubbleRow, justifyContent: isMine ? 'flex-end' : 'flex-start', alignItems: 'center', gap: '8px' }}>
+                                        {!isMine && (
+                                            <button
+                                                onClick={() => handleReportMessage(message.id)}
+                                                style={{
+                                                    background: 'none',
+                                                    border: 'none',
+                                                    cursor: 'pointer',
+                                                    fontSize: '14px',
+                                                    opacity: 0.4,
+                                                    padding: '4px',
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    transition: 'opacity 0.2s',
+                                                }}
+                                                title="Report message"
+                                            >
+                                                🚩
+                                            </button>
+                                        )}
                                         <div style={{ ...styles.bubble, ...(isMine ? styles.myBubble : styles.theirBubble) }}>
                                             {message.mediaUrl && (
                                                 <div style={{ marginBottom: '6px' }}>
@@ -356,6 +543,25 @@ const MessagesPage = () => {
                                                 {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                             </span>
                                         </div>
+                                        {isMine && (
+                                            <button
+                                                onClick={() => handleUnsendMessage(message.id)}
+                                                style={{
+                                                    background: 'none',
+                                                    border: 'none',
+                                                    cursor: 'pointer',
+                                                    fontSize: '14px',
+                                                    opacity: 0.4,
+                                                    padding: '4px',
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    transition: 'opacity 0.2s',
+                                                }}
+                                                title="Unsend message"
+                                            >
+                                                🗑️
+                                            </button>
+                                        )}
                                     </div>
                                 );
                             })}
@@ -369,6 +575,84 @@ const MessagesPage = () => {
                                 </div>
                             )}
                             <div ref={messagesEndRef} />
+                            
+                            {isReportModalOpen && (
+                                <div style={{
+                                    position: 'fixed',
+                                    top: 0, left: 0, right: 0, bottom: 0,
+                                    backgroundColor: 'rgba(0,0,0,0.5)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    zIndex: 1000,
+                                    padding: '20px'
+                                }}>
+                                    <div style={{
+                                        backgroundColor: 'white',
+                                        padding: '24px',
+                                        borderRadius: '16px',
+                                        width: '100%',
+                                        maxWidth: '400px',
+                                        boxShadow: '0 10px 25px rgba(0,0,0,0.2)'
+                                    }}>
+                                        <h3 style={{ fontSize: '18px', fontWeight: 'bold', margin: '0 0 12px 0', color: '#111827' }}>
+                                            Report {reportingMessageId ? 'Message' : 'Conversation'}
+                                        </h3>
+                                        <p style={{ fontSize: '14px', color: '#4B5563', margin: '0 0 16px 0' }}>
+                                            Please specify the reason for reporting this content.
+                                        </p>
+                                        <textarea
+                                            value={reportReason}
+                                            onChange={(e) => setReportReason(e.target.value)}
+                                            placeholder="e.g., Harassment, spam, or inappropriate behavior..."
+                                            style={{
+                                                width: '100%',
+                                                height: '100px',
+                                                padding: '12px',
+                                                borderRadius: '8px',
+                                                border: '1px solid #D1D5DB',
+                                                outline: 'none',
+                                                fontSize: '14px',
+                                                fontFamily: 'inherit',
+                                                resize: 'none',
+                                                marginBottom: '20px'
+                                            }}
+                                        />
+                                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                                            <button
+                                                onClick={() => setIsReportModalOpen(false)}
+                                                style={{
+                                                    padding: '10px 16px',
+                                                    border: '1px solid #D1D5DB',
+                                                    borderRadius: '8px',
+                                                    backgroundColor: 'white',
+                                                    cursor: 'pointer',
+                                                    fontSize: '14px',
+                                                    color: '#4B5563'
+                                                }}
+                                            >
+                                                Cancel
+                                            </button>
+                                            <button
+                                                onClick={handleSubmitReport}
+                                                disabled={!reportReason.trim()}
+                                                style={{
+                                                    padding: '10px 16px',
+                                                    border: 'none',
+                                                    borderRadius: '8px',
+                                                    backgroundColor: '#EF4444',
+                                                    color: 'white',
+                                                    cursor: reportReason.trim() ? 'pointer' : 'not-allowed',
+                                                    fontSize: '14px',
+                                                    opacity: reportReason.trim() ? 1 : 0.6
+                                                }}
+                                            >
+                                                Submit Report
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </>
                     ) : (
                         <div style={styles.notice}>Start your conversation with {targetUser?.name}.</div>
@@ -616,16 +900,17 @@ const styles: { [key: string]: CSSProperties } = {
         marginBottom: '6px',
     },
     bubble: {
-        maxWidth: '75%',
-        padding: '10px 14px',
-        borderRadius: '16px',
+        maxWidth: '82%', // Expanded bubble width
+        padding: '12px 18px', // Spacious bubble padding
+        borderRadius: '20px',
         position: 'relative',
-        boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
     },
     myBubble: {
-        backgroundColor: 'var(--brand-purple, #8B5CF6)',
+        background: 'linear-gradient(135deg, #6A4BFF 0%, #8B5CF6 100%)', // Brand gradient
         color: 'white',
         borderTopRightRadius: '4px',
+        boxShadow: '0 3px 10px rgba(106, 75, 255, 0.2)',
     },
     theirBubble: {
         backgroundColor: 'white',
@@ -636,32 +921,33 @@ const styles: { [key: string]: CSSProperties } = {
     messageContent: {
         margin: 0,
         fontSize: '15px',
-        lineHeight: 1.45,
+        lineHeight: 1.5,
         wordBreak: 'break-word',
     },
     messageTime: {
         display: 'block',
-        marginTop: '4px',
+        marginTop: '6px',
         fontSize: '10px',
         opacity: 0.75,
         textAlign: 'right',
     },
     inputArea: {
         display: 'flex',
-        padding: '12px 16px',
+        padding: '16px 20px', // More padding
         borderTop: '1px solid #E5E7EB',
         gap: '12px',
         backgroundColor: 'white',
         alignItems: 'center',
+        boxShadow: '0 -2px 10px rgba(0,0,0,0.02)',
     },
     input: {
         flex: 1,
-        padding: '10px 16px',
-        borderRadius: '24px',
+        padding: '12px 20px', // Spacious input
+        borderRadius: '28px',
         border: '1px solid #E5E7EB',
         fontSize: '15px',
         outline: 'none',
-        backgroundColor: '#F9FAFB',
+        backgroundColor: '#F3F4F6',
     },
     sendButton: {
         width: '40px',

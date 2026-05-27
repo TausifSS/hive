@@ -55,6 +55,33 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
                 }
             });
 
+            eventSource.addEventListener('message_deleted', (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    window.dispatchEvent(new CustomEvent('api-message-deleted', { detail: data }));
+                } catch (e) {
+                    console.error('Failed to parse message_deleted event', e);
+                }
+            });
+
+            eventSource.addEventListener('channel_message_deleted', (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    window.dispatchEvent(new CustomEvent('api-channel-message-deleted', { detail: data }));
+                } catch (e) {
+                    console.error('Failed to parse channel_message_deleted event', e);
+                }
+            });
+
+            eventSource.addEventListener('settings_updated', (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    window.dispatchEvent(new CustomEvent('api-settings-updated', { detail: data }));
+                } catch (e) {
+                    console.error('Failed to parse settings_updated event', e);
+                }
+            });
+
             eventSource.onerror = (err) => {
                 console.error('SSE Error:', err);
             };
@@ -72,10 +99,22 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
         const handleDemoTyping = (e: Event) => {
             window.dispatchEvent(new CustomEvent('api-typing', { detail: (e as CustomEvent).detail }));
         };
+        const handleDemoMessageDeleted = (e: Event) => {
+            window.dispatchEvent(new CustomEvent('api-message-deleted', { detail: (e as CustomEvent).detail }));
+        };
+        const handleDemoChannelMessageDeleted = (e: Event) => {
+            window.dispatchEvent(new CustomEvent('api-channel-message-deleted', { detail: (e as CustomEvent).detail }));
+        };
+        const handleDemoSettingsUpdated = (e: Event) => {
+            window.dispatchEvent(new CustomEvent('api-settings-updated', { detail: (e as CustomEvent).detail }));
+        };
 
         window.addEventListener('demo-message', handleDemoMessage);
         window.addEventListener('demo-channel-message', handleDemoChannelMessage);
         window.addEventListener('demo-typing', handleDemoTyping);
+        window.addEventListener('demo-message-deleted', handleDemoMessageDeleted);
+        window.addEventListener('demo-channel-message-deleted', handleDemoChannelMessageDeleted);
+        window.addEventListener('demo-settings-updated', handleDemoSettingsUpdated);
 
         return () => {
             if (eventSource) {
@@ -84,6 +123,9 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
             window.removeEventListener('demo-message', handleDemoMessage);
             window.removeEventListener('demo-channel-message', handleDemoChannelMessage);
             window.removeEventListener('demo-typing', handleDemoTyping);
+            window.removeEventListener('demo-message-deleted', handleDemoMessageDeleted);
+            window.removeEventListener('demo-channel-message-deleted', handleDemoChannelMessageDeleted);
+            window.removeEventListener('demo-settings-updated', handleDemoSettingsUpdated);
         };
     }, [user?.id]);
 
@@ -101,10 +143,12 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
     }
 
     // Mobile layout
+    const isChatPage = ['/chat', '/messages', '/ai'].some(path => location.pathname.startsWith(path));
+    
     return (
         <div style={styles.mobileContainer}>
             <TopNav />
-            <main style={styles.mainContentMobile}>
+            <main style={{ ...styles.mainContentMobile, padding: isChatPage ? '0' : '0 16px' }}>
                 {children}
             </main>
             <BottomNav />

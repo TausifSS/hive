@@ -93,6 +93,7 @@ export interface Conversation {
     id: string;
     participantIds: string[];
     messages: ConversationMessage[];
+    autoDeleteHours?: number;
     updatedAt: string;
 }
 
@@ -112,6 +113,7 @@ export interface Channel {
     category: string;
     createdBy?: string | null;
     createdAt: string;
+    autoDeleteHours?: number;
 }
 
 export interface AssistantReply {
@@ -213,23 +215,14 @@ const readDemoDb = (): DemoDb => {
         stories: [],
         clubApplications: [],
         conversations: [],
-        channelMessages: { global: [], professional: [], placements: [] },
-        channels: [
-            { id: 'global', name: 'global-college-chat', category: 'academic', createdAt: nowIso() },
-            { id: 'professional', name: 'professional-chats', category: 'academic', createdAt: nowIso() },
-            { id: 'placements', name: 'placement-talks', category: 'academic', createdAt: nowIso() },
-            { id: 'division-a', name: 'Division A Chat', category: 'academic', createdAt: nowIso() },
-            { id: 'department-cs', name: 'Computer Science Chat', category: 'academic', createdAt: nowIso() },
-            { id: 'year-3', name: 'Third Year Chat', category: 'academic', createdAt: nowIso() },
-            { id: 'club-coding', name: 'Coding Club Chat', category: 'club', createdAt: nowIso() },
-            { id: 'club-sports', name: 'Sports Club Chat', category: 'club', createdAt: nowIso() },
-        ],
+        channelMessages: {},
+        channels: [],
         reports: [],
     };
 
     if (parsed) {
-        if (!parsed.channels || parsed.channels.length === 0) {
-            parsed.channels = defaultDb.channels;
+        if (!parsed.channels) {
+            parsed.channels = [];
         }
         if (!parsed.reports) {
             parsed.reports = [];
@@ -680,6 +673,10 @@ async function demoRequest<T>(path: string, options: RequestOptions = {}): Promi
             conversation = { id, participantIds: [user.id, otherUser.id], messages: [], updatedAt: nowIso() };
             db.conversations.push(conversation);
         }
+        if (conversation.autoDeleteHours && conversation.autoDeleteHours > 0) {
+            const cutOffTime = Date.now() - conversation.autoDeleteHours * 60 * 60 * 1000;
+            conversation.messages = conversation.messages.filter((m: any) => new Date(m.createdAt).getTime() >= cutOffTime);
+        }
         return finish({ conversation } as T);
     }
 
@@ -722,10 +719,120 @@ async function demoRequest<T>(path: string, options: RequestOptions = {}): Promi
         return finish({ ok: true } as T);
     }
 
+    if (parts[0] === 'api' && parts[1] === 'conversations' && parts[2] === 'messages' && parts[3] && method === 'DELETE') {
+        const user = requireDemoUser(db);
+        const messageId = parts[3];
+        let foundConvo: any = null;
+        let foundMsgIndex = -1;
+        
+        for (const convo of (db.conversations || [])) {
+            const idx = convo.messages.findIndex((m: any) => m.id === messageId);
+            if (idx !== -1) {
+                foundConvo = convo;
+                foundMsgIndex = idx;
+                break;
+            }
+        }
+        
+        if (!foundConvo || foundMsgIndex === -1) throw new Error('Message not found');
+        const msg = foundConvo.messages[foundMsgIndex];
+        if (msg.senderId !== user.id) throw new Error('Forbidden');
+        
+        foundConvo.messages.splice(foundMsgIndex, 1);
+        
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('demo-message-deleted', {
+                detail: { conversationId: foundConvo.id, messageId }
+            }));
+        }
+        
+        return finish({ ok: true } as T);
+    }
+
+    if (parts[0] === 'api' && parts[1] === 'chat' && parts[2] === 'channels' && parts[3] === 'messages' && parts[4] && method === 'DELETE') {
+        const user = requireDemoUser(db);
+        const messageId = parts[4];
+        let foundChannelId = '';
+        let foundMsgIndex = -1;
+        
+        for (const chanId in db.channelMessages) {
+            const idx = db.channelMessages[chanId].findIndex((m: any) => m.id === messageId);
+            if (idx !== -1) {
+                foundChannelId = chanId;
+                foundMsgIndex = idx;
+                break;
+            }
+        }
+        
+        if (!foundChannelId || foundMsgIndex === -1) throw new Error('Message not found');
+        const msg = db.channelMessages[foundChannelId][foundMsgIndex];
+        if (msg.senderId !== user.id) throw new Error('Forbidden');
+        
+        db.channelMessages[foundChannelId].splice(foundMsgIndex, 1);
+        
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('demo-channel-message-deleted', {
+                detail: { channelId: foundChannelId, messageId }
+            }));
+        }
+        
+        return finish({ ok: true } as T);
+    }
+
+    if (parts[0] === 'api' && parts[1] === 'conversations' && parts[2] && parts[3] === 'settings' && method === 'PATCH') {
+        const user = requireDemoUser(db);
+        const conversation = db.conversations.find((candidate) => candidate.id === parts[2]);
+        if (!conversation || !conversation.participantIds.includes(user.id)) throw new Error('Not found');
+        
+        conversation.autoDeleteHours = Number(body.autoDeleteHours || 0);
+        
+        if (conversation.autoDeleteHours > 0) {
+            const cutOffTime = Date.now() - conversation.autoDeleteHours * 60 * 60 * 1000;
+            conversation.messages = conversation.messages.filter((m: any) => new Date(m.createdAt).getTime() >= cutOffTime);
+        }
+        
+        return finish({ ok: true } as T);
+    }
+
+    if (parts[0] === 'api' && parts[1] === 'chat' && parts[2] === 'channels' && parts[3] && parts[4] === 'settings' && method === 'PATCH') {
+        requireDemoUser(db);
+        const channel = db.channels.find((candidate) => candidate.id === parts[3]);
+        if (!channel) throw new Error('Not found');
+        
+        channel.autoDeleteHours = Number(body.autoDeleteHours || 0);
+        
+        if (channel.autoDeleteHours > 0) {
+            const cutOffTime = Date.now() - channel.autoDeleteHours * 60 * 60 * 1000;
+            db.channelMessages[channel.id] = (db.channelMessages[channel.id] || []).filter((m: any) => new Date(m.createdAt).getTime() >= cutOffTime);
+        }
+        
+        return finish({ ok: true } as T);
+    }
+
+    if (url.pathname === '/api/reports/chat' && method === 'POST') {
+        const user = requireDemoUser(db);
+        db.reports = db.reports || [];
+        const report = {
+            id: `report-${Date.now()}`,
+            type: body.type,
+            targetId: body.targetId,
+            reportedBy: user.id,
+            reason: body.reason,
+            createdAt: nowIso()
+        };
+        db.reports.push(report);
+        return finish({ ok: true, report } as T);
+    }
+
     if (parts[0] === 'api' && parts[1] === 'chat' && parts[2] === 'channels' && parts[3] && parts[4] === 'messages') {
         const user = requireDemoUser(db);
         const channelId = parts[3];
         db.channelMessages[channelId] = db.channelMessages[channelId] || [];
+        const channel = db.channels.find(c => c.id === channelId);
+        if (channel && channel.autoDeleteHours && channel.autoDeleteHours > 0) {
+            const cutOffTime = Date.now() - channel.autoDeleteHours * 60 * 60 * 1000;
+            db.channelMessages[channelId] = db.channelMessages[channelId].filter((m: any) => new Date(m.createdAt).getTime() >= cutOffTime);
+        }
         if (method === 'GET') return finish({ messages: db.channelMessages[channelId] } as T);
         if (method === 'POST') {
             const message: ChannelMessage = { 
@@ -1094,6 +1201,34 @@ export const askAssistant = (message: string) =>
     apiRequest<{ reply: AssistantReply }>('/api/assistant/message', {
         method: 'POST',
         body: { message },
+    });
+
+export const deleteConversationMessage = (messageId: string) =>
+    apiRequest<{ ok: boolean }>(`/api/conversations/messages/${messageId}`, {
+        method: 'DELETE',
+    });
+
+export const deleteChannelMessage = (_channelId: string, messageId: string) =>
+    apiRequest<{ ok: boolean }>(`/api/chat/channels/messages/${messageId}`, {
+        method: 'DELETE',
+    });
+
+export const updateConversationSettings = (conversationId: string, autoDeleteHours: number) =>
+    apiRequest<{ ok: boolean }>(`/api/conversations/${conversationId}/settings`, {
+        method: 'PATCH',
+        body: { autoDeleteHours },
+    });
+
+export const updateChannelSettings = (channelId: string, autoDeleteHours: number) =>
+    apiRequest<{ ok: boolean }>(`/api/chat/channels/${channelId}/settings`, {
+        method: 'PATCH',
+        body: { autoDeleteHours },
+    });
+
+export const reportChat = (type: 'message' | 'channel_message' | 'conversation' | 'channel', targetId: string, reason: string) =>
+    apiRequest<{ ok: boolean }>('/api/reports/chat', {
+        method: 'POST',
+        body: { type, targetId, reason },
     });
 
 export const getTopStories = () =>

@@ -848,6 +848,12 @@ async function getConversation(conversationId) {
   const conversation = await dbQueryGet('SELECT * FROM conversations WHERE id = ?', [conversationId]);
   if (!conversation) return null;
 
+  const autoDeleteHours = Number(conversation.auto_delete_hours || 0);
+  if (autoDeleteHours > 0) {
+    const cutOff = new Date(Date.now() - autoDeleteHours * 60 * 60 * 1000).toISOString();
+    await dbQueryRun('DELETE FROM messages WHERE conversation_id = ? AND created_at < ?', [conversationId, cutOff]);
+  }
+
   const participantsRows = await dbQueryAll('SELECT user_id FROM conversation_participants WHERE conversation_id = ? ORDER BY user_id ASC', [conversationId]);
   const participantIds = participantsRows.map((row) => row.user_id);
 
@@ -864,6 +870,7 @@ async function getConversation(conversationId) {
     id: conversation.id,
     participantIds,
     messages,
+    autoDeleteHours,
     updatedAt: conversation.updated_at,
   };
 }
@@ -934,11 +941,28 @@ async function channelExists(channelId) {
 }
 
 async function getChannelById(channelId) {
-  return await dbQueryGet('SELECT * FROM channels WHERE id = ?', [channelId]);
+  const row = await dbQueryGet('SELECT * FROM channels WHERE id = ?', [channelId]);
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name,
+    category: row.category,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+    autoDeleteHours: Number(row.auto_delete_hours || 0)
+  };
 }
 
 async function listChannels() {
-  return await dbQueryAll('SELECT * FROM channels ORDER BY category ASC, name ASC');
+  const rows = await dbQueryAll('SELECT * FROM channels ORDER BY category ASC, name ASC');
+  return rows.map(row => ({
+    id: row.id,
+    name: row.name,
+    category: row.category,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+    autoDeleteHours: Number(row.auto_delete_hours || 0)
+  }));
 }
 
 async function createChannel({ id, name, category, createdBy = null }) {
@@ -954,6 +978,13 @@ async function createChannel({ id, name, category, createdBy = null }) {
 async function listChannelMessages(channelId) {
   const exists = await channelExists(channelId);
   if (!exists) return null;
+
+  const channel = await dbQueryGet('SELECT * FROM channels WHERE id = ?', [channelId]);
+  const autoDeleteHours = Number(channel?.auto_delete_hours || 0);
+  if (autoDeleteHours > 0) {
+    const cutOff = new Date(Date.now() - autoDeleteHours * 60 * 60 * 1000).toISOString();
+    await dbQueryRun('DELETE FROM channel_messages WHERE channel_id = ? AND created_at < ?', [channelId, cutOff]);
+  }
 
   const rows = await dbQueryAll('SELECT * FROM channel_messages WHERE channel_id = ? ORDER BY created_at ASC', [channelId]);
   const results = [];
@@ -1002,6 +1033,44 @@ async function addChannelMessage(channelId, senderId, content, mediaUrl = '') {
       author: publicUser(await getUserById(senderId)),
     },
   };
+}
+
+async function deleteConversationMessage(messageId, userId) {
+  const msg = await dbQueryGet('SELECT sender_id, conversation_id FROM messages WHERE id = ?', [messageId]);
+  if (!msg) return { error: 'not-found' };
+  if (msg.sender_id !== userId) return { error: 'forbidden' };
+  
+  await dbQueryRun('DELETE FROM messages WHERE id = ?', [messageId]);
+  return { ok: true, conversationId: msg.conversation_id };
+}
+
+async function deleteChannelMessage(messageId, userId) {
+  const msg = await dbQueryGet('SELECT sender_id, channel_id FROM channel_messages WHERE id = ?', [messageId]);
+  if (!msg) return { error: 'not-found' };
+  if (msg.sender_id !== userId) return { error: 'forbidden' };
+  
+  await dbQueryRun('DELETE FROM channel_messages WHERE id = ?', [messageId]);
+  return { ok: true, channelId: msg.channel_id };
+}
+
+async function updateConversationSettings(conversationId, autoDeleteHours) {
+  await dbQueryRun('UPDATE conversations SET auto_delete_hours = ? WHERE id = ?', [autoDeleteHours, conversationId]);
+  return { ok: true };
+}
+
+async function updateChannelSettings(channelId, autoDeleteHours) {
+  await dbQueryRun('UPDATE channels SET auto_delete_hours = ? WHERE id = ?', [autoDeleteHours, channelId]);
+  return { ok: true };
+}
+
+async function createChatReport(type, targetId, reportedBy, reason) {
+  const id = `report-${randomUUID()}`;
+  const now = new Date().toISOString();
+  await dbQueryRun(`
+    INSERT INTO chat_reports (id, type, target_id, reported_by, reason, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `, [id, type, targetId, reportedBy, reason, now]);
+  return { ok: true, reportId: id };
 }
 
 function camelStory(row) {
@@ -1315,6 +1384,12 @@ async function runMigrations() {
   if (!(await columnExists('channel_messages', 'media_url'))) {
     await dbQueryExec("ALTER TABLE channel_messages ADD COLUMN media_url TEXT DEFAULT '';");
   }
+  if (!(await columnExists('conversations', 'auto_delete_hours'))) {
+    await dbQueryExec('ALTER TABLE conversations ADD COLUMN auto_delete_hours INTEGER DEFAULT 0;');
+  }
+  if (!(await columnExists('channels', 'auto_delete_hours'))) {
+    await dbQueryExec('ALTER TABLE channels ADD COLUMN auto_delete_hours INTEGER DEFAULT 0;');
+  }
 
   await dbQueryExec(`
     CREATE TABLE IF NOT EXISTS post_reports (
@@ -1327,13 +1402,31 @@ async function runMigrations() {
       FOREIGN KEY (reported_by) REFERENCES users(id) ON DELETE CASCADE
     );
   `);
+
+  await dbQueryExec(`
+    CREATE TABLE IF NOT EXISTS chat_reports (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      reported_by TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+  `);
 }
 
 async function removeLegacyDemoData() {
   const marker = await dbQueryGet("SELECT value FROM app_meta WHERE key = 'legacy_demo_cleanup_v1'");
-  if (marker) return;
+  if (marker) {
+    // Make sure default channels are deleted even on repeated runs
+    await dbQueryRun("DELETE FROM channel_messages WHERE channel_id IN ('global', 'professional', 'placements', 'division-a', 'department-cs', 'year-3', 'club-coding', 'club-sports')");
+    await dbQueryRun("DELETE FROM channels WHERE id IN ('global', 'professional', 'placements', 'division-a', 'department-cs', 'year-3', 'club-coding', 'club-sports')");
+    return;
+  }
 
   await dbQueryRun("DELETE FROM users WHERE email IN ('yash@ghrcem.edu', 'tausif@ghrcem.edu')");
+  await dbQueryRun("DELETE FROM channel_messages WHERE channel_id IN ('global', 'professional', 'placements', 'division-a', 'department-cs', 'year-3', 'club-coding', 'club-sports')");
+  await dbQueryRun("DELETE FROM channels WHERE id IN ('global', 'professional', 'placements', 'division-a', 'department-cs', 'year-3', 'club-coding', 'club-sports')");
   await dbQueryRun(`
     INSERT INTO app_meta (key, value)
     VALUES ('legacy_demo_cleanup_v1', ?)
@@ -1380,28 +1473,8 @@ async function seedTopStories() {
 }
 
 async function seedChannels() {
-  const row = await dbQueryGet('SELECT COUNT(*) AS count FROM channels');
-  const count = Number(row?.count || 0);
-  if (count > 0) return;
-
-  const defaultChannels = [
-    { id: 'global', name: 'global-college-chat', category: 'academic' },
-    { id: 'professional', name: 'professional-chats', category: 'academic' },
-    { id: 'placements', name: 'placement-talks', category: 'academic' },
-    { id: 'division-a', name: 'Division A Chat', category: 'academic' },
-    { id: 'department-cs', name: 'Computer Science Chat', category: 'academic' },
-    { id: 'year-3', name: 'Third Year Chat', category: 'academic' },
-    { id: 'club-coding', name: 'Coding Club Chat', category: 'club' },
-    { id: 'club-sports', name: 'Sports Club Chat', category: 'club' },
-  ];
-
-  const now = new Date().toISOString();
-  for (const chan of defaultChannels) {
-    await dbQueryRun(`
-      INSERT INTO channels (id, name, category, created_by, created_at)
-      VALUES (?, ?, ?, NULL, ?)
-    `, [chan.id, chan.name, chan.category, now]);
-  }
+  // We no longer seed any default channels. Users will create custom channels.
+  return;
 }
 
 // Initialize Database
@@ -1462,6 +1535,11 @@ export const db = {
   addChannelMessage,
   listChannels,
   createChannel,
+  deleteConversationMessage,
+  deleteChannelMessage,
+  updateConversationSettings,
+  updateChannelSettings,
+  createChatReport,
   listTopStories,
   getTopStoryById,
   createTopStory,
