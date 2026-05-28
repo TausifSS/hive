@@ -30,7 +30,8 @@ function broadcast(event, data) {
 function getJsonHeaders(req) {
   const origin = req.headers.origin;
   const allowedOrigins = ['http://localhost:5173', 'http://localhost:5174', 'https://tausifss.github.io'];
-  const corsOrigin = allowedOrigins.includes(origin) ? origin : (process.env.CLIENT_ORIGIN || '*');
+  const isAllowed = allowedOrigins.includes(origin) || (origin && (origin.endsWith('.vercel.app') || origin === 'https://vercel.app'));
+  const corsOrigin = isAllowed ? origin : (process.env.CLIENT_ORIGIN || '*');
 
   return {
     'Content-Type': 'application/json',
@@ -238,7 +239,8 @@ async function handleRoute(req, res) {
   if (url.pathname === '/api/updates' && req.method === 'GET') {
     const origin = req.headers.origin;
     const allowedOrigins = ['http://localhost:5173', 'http://localhost:5174', 'https://tausifss.github.io'];
-    const corsOrigin = allowedOrigins.includes(origin) ? origin : (process.env.CLIENT_ORIGIN || '*');
+    const isAllowed = allowedOrigins.includes(origin) || (origin && (origin.endsWith('.vercel.app') || origin === 'https://vercel.app'));
+    const corsOrigin = isAllowed ? origin : (process.env.CLIENT_ORIGIN || '*');
 
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
