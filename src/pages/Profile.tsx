@@ -247,12 +247,35 @@ const MobileProfilePage = () => {
                 <div style={styles.nameAndHandle}>
                     <h1 style={styles.name}>{profileUser.name}</h1>
                     <span style={styles.handle}>@{profileUser.handle || profileUser.id}</span>
-                    {profileUser.role === 'student' && profileUser.div && (
-                        <div style={{ fontSize: '14px', fontWeight: 'bold', color: 'var(--brand-purple)', marginTop: '4px' }}>
-                            🎓 {profileUser.year} - Div {profileUser.div} ({profileUser.department})
-                        </div>
-                    )}
                 </div>
+                {isMyProfile && currentUser?.role === 'student' && (!currentUser.div || !currentUser.year || !currentUser.department) && (
+                    <div 
+                        onClick={openEditProfile}
+                        style={{
+                            margin: '12px 0 16px 0',
+                            padding: '12px 16px',
+                            backgroundColor: '#FEF2F2',
+                            border: '1px solid #FCA5A5',
+                            borderRadius: '12px',
+                            color: '#991B1B',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            transition: 'all 0.2s',
+                            boxShadow: '0 2px 6px rgba(239, 68, 68, 0.08)'
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '18px' }}>⚠️</span>
+                            <div style={{ textAlign: 'left' }}>
+                                <div style={{ fontWeight: 'bold', fontSize: '14px' }}>Complete your profile details</div>
+                                <div style={{ fontSize: '12px', color: '#B91C1C' }}>Division, Year, and Department are required for QR attendance.</div>
+                            </div>
+                        </div>
+                        <span style={{ fontWeight: 'bold', fontSize: '13px', textDecoration: 'underline' }}>Fill now</span>
+                    </div>
+                )}
                 {profileUser.badges && profileUser.badges.length > 0 && (
                     <div style={styles.badgeContainer}>
                         {profileUser.badges.map((badge) => (
