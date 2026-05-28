@@ -3,5 +3,5 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  base: "/Hive/",   // 👈 EXACT repo name
+  base: process.env.VERCEL ? "/" : "/Hive/",   // 👈 Dynamic base depending on hosting
 })

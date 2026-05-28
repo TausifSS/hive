@@ -18,7 +18,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/Hive/sw.js')
+    const swPath = window.location.pathname.startsWith('/Hive') ? '/Hive/sw.js' : '/sw.js';
+    navigator.serviceWorker.register(swPath)
       .then((reg) => console.log('Service worker registered successfully:', reg.scope))
       .catch((err) => console.error('Service worker registration failed:', err));
   });

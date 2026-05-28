@@ -22,6 +22,8 @@ const MobileProfilePage = () => {
     const [isQrOpen, setIsQrOpen] = useState(false);
     const [editForm, setEditForm] = useState({ name: '', bio: '', avatarUrl: '', coverUrl: '', div: '', year: '', department: '' });
     const [validationError, setValidationError] = useState('');
+    const [isOtherDept, setIsOtherDept] = useState(false);
+    const [customDept, setCustomDept] = useState('');
     
     // Dropdown state for three-dot menu
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -97,43 +99,70 @@ const MobileProfilePage = () => {
     const openEditProfile = () => {
         if (!profileUser) return;
         setValidationError('');
-        setEditForm({
-            name: profileUser.name,
-            bio: profileUser.bio || '',
-            avatarUrl: profileUser.avatarUrl || '',
-            coverUrl: profileUser.coverUrl || '',
-            div: profileUser.div || '',
-            year: profileUser.year || '',
-            department: profileUser.department || '',
-        });
+        const isPredefined = ['computer eng', 'it', 'entc', 'ai', 'ai ml', 'data sc', 'cyber'].includes(profileUser.department || '');
+        if (profileUser.department && !isPredefined) {
+            setIsOtherDept(true);
+            setCustomDept(profileUser.department);
+            setEditForm({
+                name: profileUser.name,
+                bio: profileUser.bio || '',
+                avatarUrl: profileUser.avatarUrl || '',
+                coverUrl: profileUser.coverUrl || '',
+                div: profileUser.div || '',
+                year: profileUser.year || '',
+                department: 'Other',
+            });
+        } else {
+            setIsOtherDept(false);
+            setCustomDept('');
+            setEditForm({
+                name: profileUser.name,
+                bio: profileUser.bio || '',
+                avatarUrl: profileUser.avatarUrl || '',
+                coverUrl: profileUser.coverUrl || '',
+                div: profileUser.div || '',
+                year: profileUser.year || '',
+                department: profileUser.department || '',
+            });
+        }
         setIsEditOpen(true);
     };
 
     const handleSaveProfile = async () => {
         setError('');
         setValidationError('');
+        const finalForm = { ...editForm };
         if (currentUser?.role === 'student') {
-            if (!editForm.name.trim()) {
+            if (editForm.department === 'Other') {
+                if (!customDept.trim()) {
+                    setValidationError('Custom department name is required.');
+                    return;
+                }
+                finalForm.department = customDept.trim();
+            }
+            if (!finalForm.name.trim()) {
                 setValidationError('Full Name is required.');
                 return;
             }
-            if (!editForm.div) {
+            if (!finalForm.div) {
                 setValidationError('Division is required.');
                 return;
             }
-            if (!editForm.year) {
+            if (!finalForm.year) {
                 setValidationError('Year is required.');
                 return;
             }
-            if (!editForm.department) {
+            if (!finalForm.department) {
                 setValidationError('Department is required.');
                 return;
             }
         }
         try {
-            const response = await updateCurrentUserProfile(editForm);
-            setProfileUser(response.user);
-            setUser(response.user);
+            const response = await updateCurrentUserProfile(finalForm);
+            if (response && response.user) {
+                setProfileUser(response.user);
+                setUser(response.user);
+            }
             setIsEditOpen(false);
         } catch (saveError) {
             setError(saveError instanceof Error ? saveError.message : 'Unable to update profile');
@@ -152,7 +181,9 @@ const MobileProfilePage = () => {
     };
 
     const handleCopyProfileLink = () => {
-        const link = `${window.location.origin}/Hive/#/profile/${profileUser?.id}`;
+        const link = window.location.pathname.startsWith('/Hive')
+            ? `${window.location.origin}/Hive/#/profile/${profileUser?.id}`
+            : `${window.location.origin}/profile/${profileUser?.id}`;
         void navigator.clipboard.writeText(link)
             .then(() => alert('Profile link copied to clipboard!'))
             .catch(() => alert('Failed to copy link.'));
@@ -534,8 +565,6 @@ const MobileProfilePage = () => {
                                     <option value="A">A</option>
                                     <option value="B">B</option>
                                     <option value="C">C</option>
-                                    <option value="D">D</option>
-                                    <option value="E">E</option>
                                 </select>
 
                                 <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', marginBottom: '6px', color: '#374151', textAlign: 'left' }}>
@@ -559,17 +588,36 @@ const MobileProfilePage = () => {
                                 <select 
                                     style={styles.input} 
                                     value={editForm.department} 
-                                    onChange={(event) => setEditForm({ ...editForm, department: event.target.value })}
+                                    onChange={(event) => {
+                                        const val = event.target.value;
+                                        setEditForm({ ...editForm, department: val });
+                                        if (val === 'Other') {
+                                            setIsOtherDept(true);
+                                        } else {
+                                            setIsOtherDept(false);
+                                        }
+                                    }}
                                 >
                                     <option value="">Select Department</option>
-                                    <option value="Computer Science">Computer Science</option>
-                                    <option value="IT">IT</option>
-                                    <option value="AI&DS">AI&DS</option>
-                                    <option value="E&TC">E&TC</option>
-                                    <option value="Mechanical">Mechanical</option>
-                                    <option value="Civil">Civil</option>
-                                    <option value="MBA">MBA</option>
+                                    <option value="computer eng">Computer Eng</option>
+                                    <option value="it">IT</option>
+                                    <option value="entc">ENTC</option>
+                                    <option value="ai">AI</option>
+                                    <option value="ai ml">AI ML</option>
+                                    <option value="data sc">Data Science</option>
+                                    <option value="cyber">Cyber Security</option>
+                                    <option value="Other">Other (Type custom)</option>
                                 </select>
+
+                                {isOtherDept && (
+                                    <input 
+                                        type="text"
+                                        style={styles.input}
+                                        placeholder="Type your department name"
+                                        value={customDept}
+                                        onChange={(event) => setCustomDept(event.target.value)}
+                                    />
+                                )}
                             </>
                         )}
 

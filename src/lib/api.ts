@@ -1174,7 +1174,15 @@ export const getCurrentUser = () =>
 export const getOnlineUsers = () =>
     apiRequest<{ success: boolean; onlineUserIds: string[] }>('/api/users/online');
 
-export const updateCurrentUserProfile = (body: { name: string; bio?: string; avatarUrl?: string; coverUrl?: string }) =>
+export const updateCurrentUserProfile = (body: { 
+    name: string; 
+    bio?: string; 
+    avatarUrl?: string; 
+    coverUrl?: string;
+    div?: string;
+    year?: string;
+    department?: string;
+}) =>
     apiRequest<{ user: User }>('/api/users/me', {
         method: 'PATCH',
         body,
