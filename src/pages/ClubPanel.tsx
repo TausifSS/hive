@@ -241,8 +241,8 @@ const ClubPanelPage = () => {
                 <p style={{ fontSize: '14px', color: '#6B7280', marginBottom: '16px' }}>
                     Verify a student's check-in QR ticket or manual ID to award event points.
                 </p>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'flex-end' }}>
-                    <div style={{ flex: 1, minWidth: '200px' }}>
+                <div style={styles.attendanceFormGrid}>
+                    <div style={{ flex: 1 }}>
                         <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '6px', color: '#374151' }}>Select Event</label>
                         <select 
                             value={selectedEventId} 
@@ -255,7 +255,7 @@ const ClubPanelPage = () => {
                             ))}
                         </select>
                     </div>
-                    <div style={{ flex: 1, minWidth: '200px' }}>
+                    <div style={{ flex: 1 }}>
                         <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '6px', color: '#374151' }}>Student ID or Handle</label>
                         <input 
                             id="attendance-input"
@@ -267,24 +267,26 @@ const ClubPanelPage = () => {
                             style={styles.input}
                         />
                     </div>
+                </div>
+                <div style={styles.buttonGroup}>
                     <button 
                         onClick={handleVerifyAttendance} 
                         disabled={isVerifying || !selectedEventId || !attendanceStudentId.trim()}
-                        style={{ ...styles.verifyButton, ...((isVerifying || !selectedEventId || !attendanceStudentId.trim()) ? styles.disabledButton : {}) }}
+                        style={{ ...styles.verifyButton, width: '100%', ...((isVerifying || !selectedEventId || !attendanceStudentId.trim()) ? styles.disabledButton : {}) }}
                     >
                         {isVerifying ? 'Verifying...' : 'Verify & Credit Points'}
                     </button>
                     <button 
                         onClick={() => setIsCameraOpen(true)}
                         disabled={isVerifying || !selectedEventId}
-                        style={{ ...styles.verifyButton, backgroundColor: '#10B981', ...((isVerifying || !selectedEventId) ? styles.disabledButton : {}) }}
+                        style={{ ...styles.verifyButton, width: '100%', backgroundColor: '#10B981', ...((isVerifying || !selectedEventId) ? styles.disabledButton : {}) }}
                     >
                         📸 Scan QR Code
                     </button>
                     <button 
                         onClick={handleSimulateScan}
                         disabled={isVerifying || !selectedEventId}
-                        style={{ ...styles.scanButton, ...((isVerifying || !selectedEventId) ? styles.disabledButton : {}) }}
+                        style={{ ...styles.scanButton, width: '100%', ...((isVerifying || !selectedEventId) ? styles.disabledButton : {}) }}
                     >
                         Simulate Scan
                     </button>
@@ -518,6 +520,21 @@ const styles: { [key: string]: CSSProperties } = {
         border: '1px solid #E5E7EB',
         maxHeight: '90vh',
         overflowY: 'auto',
+    },
+    attendanceFormGrid: {
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+        gap: '12px',
+        width: '100%',
+        boxSizing: 'border-box',
+    },
+    buttonGroup: {
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+        gap: '12px',
+        marginTop: '14px',
+        width: '100%',
+        boxSizing: 'border-box',
     }
 };
 

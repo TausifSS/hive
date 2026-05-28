@@ -247,6 +247,11 @@ const MobileProfilePage = () => {
                 <div style={styles.nameAndHandle}>
                     <h1 style={styles.name}>{profileUser.name}</h1>
                     <span style={styles.handle}>@{profileUser.handle || profileUser.id}</span>
+                    {profileUser.role === 'student' && profileUser.div && (
+                        <div style={{ fontSize: '14px', fontWeight: 'bold', color: 'var(--brand-purple)', marginTop: '4px' }}>
+                            🎓 {profileUser.year} - Div {profileUser.div} ({profileUser.department})
+                        </div>
+                    )}
                 </div>
                 {profileUser.badges && profileUser.badges.length > 0 && (
                     <div style={styles.badgeContainer}>
@@ -278,17 +283,19 @@ const MobileProfilePage = () => {
                     {isMyProfile ? (
                         <>
                             <button style={{ ...styles.editButton, flex: 3 }} onClick={openEditProfile}>Edit Profile</button>
-                            <button 
-                                style={{ 
-                                    ...styles.editButton, 
-                                    flex: 3, 
-                                    backgroundColor: 'var(--brand-purple)', 
-                                    color: 'white' 
-                                }} 
-                                onClick={() => setIsQrOpen(true)}
-                            >
-                                🎫 Show QR Ticket
-                            </button>
+                            {currentUser?.role === 'student' && (
+                                <button 
+                                    style={{ 
+                                        ...styles.editButton, 
+                                        flex: 3, 
+                                        backgroundColor: 'var(--brand-purple)', 
+                                        color: 'white' 
+                                    }} 
+                                    onClick={() => setIsQrOpen(true)}
+                                >
+                                    🎫 Show QR Ticket
+                                </button>
+                            )}
                             <div style={{ position: 'relative' }}>
                                 <button style={styles.moreButton} onClick={() => setIsDropdownOpen(!isDropdownOpen)}>
                                     <MoreHorizontal size={24} color="#374151" />

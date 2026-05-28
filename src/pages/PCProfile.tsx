@@ -335,6 +335,11 @@ const PCProfilePage = () => {
       <section style={styles.userInfo}>
         <h1 style={styles.name}>{profileUser.name}</h1>
         <span style={styles.handle}>@{profileUser.handle || profileUser.id}</span>
+        {profileUser.role === 'student' && profileUser.div && (
+          <div style={{ fontSize: '15px', fontWeight: 'bold', color: 'var(--brand-purple)', marginTop: '4px' }}>
+            🎓 {profileUser.year} - Div {profileUser.div} ({profileUser.department})
+          </div>
+        )}
         {profileUser.badges && profileUser.badges.length > 0 && (
           <div style={styles.badgeContainer}>
             {profileUser.badges.map((badge) => (
@@ -361,17 +366,19 @@ const PCProfilePage = () => {
           {isMyProfile ? (
             <>
               <button style={{ ...styles.editButton, padding: '10px 32px' }} onClick={openEditProfile}>Edit Profile</button>
-              <button 
-                style={{ 
-                  ...styles.editButton, 
-                  padding: '10px 32px', 
-                  backgroundColor: 'var(--brand-purple)', 
-                  color: 'white' 
-                }} 
-                onClick={() => setIsQrOpen(true)}
-              >
-                🎫 Show QR Ticket
-              </button>
+              {currentUser?.role === 'student' && (
+                <button 
+                  style={{ 
+                    ...styles.editButton, 
+                    padding: '10px 32px', 
+                    backgroundColor: 'var(--brand-purple)', 
+                    color: 'white' 
+                  }} 
+                  onClick={() => setIsQrOpen(true)}
+                >
+                  🎫 Show QR Ticket
+                </button>
+              )}
               <div style={{ position: 'relative' }}>
                 <button style={styles.moreButton} onClick={() => setIsDropdownOpen(!isDropdownOpen)}>
                   <MoreHorizontal size={20} color="#6B7280" />

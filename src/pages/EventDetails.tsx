@@ -38,13 +38,21 @@ const EventDetailsPage = () => {
 
             try {
                 const response = await getEvent(eventId);
-                setEvent(response.event);
-                const isOrgOrAdmin = response.event.organizerId === user?.id || user?.role === 'Admin';
-                if (isOrgOrAdmin) {
-                    setIsLoadingRegistrations(true);
-                    const res = await getEventRegistrations(eventId);
-                    setRegistrations(res.registrations);
-                    setIsLoadingRegistrations(false);
+                if (response && response.event) {
+                    setEvent(response.event);
+                    const isOrgOrAdmin = response.event.organizerId === user?.id || user?.role === 'Admin';
+                    if (isOrgOrAdmin) {
+                        setIsLoadingRegistrations(true);
+                        const res = await getEventRegistrations(eventId);
+                        if (res && res.registrations) {
+                            setRegistrations(res.registrations);
+                        } else {
+                            setRegistrations([]);
+                        }
+                        setIsLoadingRegistrations(false);
+                    }
+                } else {
+                    setError('Event details could not be parsed.');
                 }
             } catch (eventError) {
                 setError(eventError instanceof Error ? eventError.message : 'Unable to load event');
@@ -57,20 +65,24 @@ const EventDetailsPage = () => {
     }, [eventId, user?.id, user?.role]);
 
     const handleRegister = async () => {
-        if (!event || !user || event.registeredUserIds.includes(user.id)) return;
+        if (!event || !user || !event.registeredUserIds || event.registeredUserIds.includes(user.id)) return;
 
         setError('');
 
         try {
             const response = await registerForEvent(event.id);
-            setEvent(response.event);
-            setUser(response.user);
-            
-            // Reload registrations list
-            const isOrgOrAdmin = response.event.organizerId === user?.id || user?.role === 'Admin';
-            if (isOrgOrAdmin) {
-                const res = await getEventRegistrations(event.id);
-                setRegistrations(res.registrations);
+            if (response && response.event) {
+                setEvent(response.event);
+                setUser(response.user);
+                
+                // Reload registrations list
+                const isOrgOrAdmin = response.event.organizerId === user?.id || user?.role === 'Admin';
+                if (isOrgOrAdmin) {
+                    const res = await getEventRegistrations(event.id);
+                    if (res && res.registrations) {
+                        setRegistrations(res.registrations);
+                    }
+                }
             }
         } catch (registerError) {
             setError(registerError instanceof Error ? registerError.message : 'Unable to register for event');
@@ -92,16 +104,37 @@ const EventDetailsPage = () => {
 
     const openEditModal = () => {
         if (!event) return;
-        setEditForm({
-            title: event.title,
-            description: event.description || '',
-            category: event.category || 'General',
-            date: event.date ? new Date(event.date).toISOString().slice(0, 16) : '',
-            venue: event.venue || '',
-            capacity: event.capacity || 100,
-            points: event.points || 0,
-            imageUrl: event.imageUrl || '',
-        });
+        try {
+            let formattedDate = '';
+            if (event.date) {
+                const parsedDate = new Date(event.date);
+                if (!isNaN(parsedDate.getTime())) {
+                    formattedDate = parsedDate.toISOString().slice(0, 16);
+                }
+            }
+            setEditForm({
+                title: event.title || '',
+                description: event.description || '',
+                category: event.category || 'General',
+                date: formattedDate,
+                venue: event.venue || '',
+                capacity: event.capacity || 100,
+                points: event.points || 0,
+                imageUrl: event.imageUrl || '',
+            });
+        } catch (e) {
+            console.error("Failed to format event date for edit modal", e);
+            setEditForm({
+                title: event.title || '',
+                description: event.description || '',
+                category: event.category || 'General',
+                date: '',
+                venue: event.venue || '',
+                capacity: event.capacity || 100,
+                points: event.points || 0,
+                imageUrl: event.imageUrl || '',
+            });
+        }
         setIsEditOpen(true);
         setIsMenuOpen(false);
     };
@@ -110,7 +143,9 @@ const EventDetailsPage = () => {
         if (!event) return;
         try {
             const res = await updateEvent(event.id, editForm);
-            setEvent(res.event);
+            if (res && res.event) {
+                setEvent(res.event);
+            }
             setIsEditOpen(false);
         } catch (err) {
             alert(err instanceof Error ? err.message : 'Failed to update event');
@@ -249,13 +284,15 @@ const EventDetailsPage = () => {
                             <p style={styles.organizer}>by {event.organizer}</p>
                         </div>
                         <div style={styles.actionButtonsContainer}>
-                            <button
-                                style={isRegistered ? styles.registeredButton : styles.registerButton}
-                                onClick={handleRegister}
-                                disabled={isRegistered || event.registeredCount >= event.capacity}
-                            >
-                                {isRegistered ? 'Registered' : 'Register'}
-                            </button>
+                            {user?.role === 'student' && (
+                                <button
+                                    style={isRegistered ? styles.registeredButton : styles.registerButton}
+                                    onClick={handleRegister}
+                                    disabled={isRegistered || event.registeredCount >= event.capacity}
+                                >
+                                    {isRegistered ? 'Registered' : 'Register'}
+                                </button>
+                            )}
                             <a
                                 href={getGoogleCalendarUrl(event)}
                                 target="_blank"
@@ -283,19 +320,19 @@ const EventDetailsPage = () => {
                     <div style={styles.detailsGrid}>
                         <div style={styles.detailItem}>
                             <Calendar size={18} color="#6B7280" />
-                            <span>{new Date(event.date).toLocaleString()}</span>
+                            <span>{event.date && !isNaN(new Date(event.date).getTime()) ? new Date(event.date).toLocaleString() : 'No date set'}</span>
                         </div>
                         <div style={styles.detailItem}>
                             <MapPin size={18} color="#6B7280" />
-                            <span>{event.venue}</span>
+                            <span>{event.venue || 'No venue set'}</span>
                         </div>
                         <div style={styles.detailItem}>
                             <Users size={18} color="#6B7280" />
-                            <span>{event.registeredCount} registered / {event.capacity}</span>
+                            <span>{event.registeredCount || 0} registered / {event.capacity || 100}</span>
                         </div>
                         <div style={styles.detailItem}>
                             <Trophy size={18} color="#FBBF24" />
-                            <span>{event.points} points</span>
+                            <span>{event.points || 0} points</span>
                         </div>
                     </div>
 
@@ -305,10 +342,10 @@ const EventDetailsPage = () => {
                                 <div>
                                     <h3 style={styles.attendanceTitle}>Registrations & Attendance</h3>
                                     <p style={styles.attendanceSubtitle}>
-                                        {registrations.filter((r) => r.attended).length} checked in / {registrations.length} registered students
+                                        {(registrations || []).filter((r) => r.attended).length} checked in / {(registrations || []).length} registered students
                                     </p>
                                 </div>
-                                {registrations.length > 0 && (
+                                {(registrations || []).length > 0 && (
                                     <button onClick={handleDownloadCSV} style={styles.downloadButton}>
                                         <Download size={16} />
                                         <span>Download Excel (CSV)</span>
@@ -318,7 +355,7 @@ const EventDetailsPage = () => {
 
                             {isLoadingRegistrations ? (
                                 <p style={{ color: '#6B7280', fontSize: '14px', margin: '12px 0' }}>Loading registrations...</p>
-                            ) : registrations.length === 0 ? (
+                            ) : (registrations || []).length === 0 ? (
                                 <p style={{ color: '#6B7280', fontSize: '14px', margin: '12px 0' }}>No students registered for this event yet.</p>
                             ) : (
                                 <div style={{ overflowX: 'auto', border: '1px solid #E5E7EB', borderRadius: '12px', marginTop: '12px' }}>
@@ -333,7 +370,7 @@ const EventDetailsPage = () => {
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {registrations.map((reg) => (
+                                            {(registrations || []).map((reg) => (
                                                 <tr key={reg.userId} style={{ borderBottom: '1px solid #F3F4F6' }}>
                                                     <td style={{ padding: '12px 16px', fontWeight: '500', color: '#111827' }}>
                                                         <div>
@@ -360,7 +397,7 @@ const EventDetailsPage = () => {
                                                         </span>
                                                     </td>
                                                     <td style={{ padding: '12px 16px', color: '#6B7280' }}>
-                                                        {new Date(reg.registeredAt).toLocaleDateString()}
+                                                        {reg.registeredAt && !isNaN(new Date(reg.registeredAt).getTime()) ? new Date(reg.registeredAt).toLocaleDateString() : '-'}
                                                     </td>
                                                 </tr>
                                             ))}
@@ -464,20 +501,26 @@ const EventDetailsPage = () => {
 };
 
 const getGoogleCalendarUrl = (event: HiveEvent) => {
-    const startDate = new Date(event.date);
-    // Default duration is 2 hours
-    const endDate = new Date(startDate.getTime() + 2 * 60 * 60 * 1000);
-    
-    const formatToGCal = (date: Date) => {
-        return date.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
-    };
-    
-    const dates = `${formatToGCal(startDate)}/${formatToGCal(endDate)}`;
-    const text = encodeURIComponent(event.title);
-    const details = encodeURIComponent(`${event.description || ''}\n\nOrganizer: ${event.organizer || ''}\nPoints: ${event.points || 0}`);
-    const location = encodeURIComponent(event.venue || '');
-    
-    return `https://www.google.com/calendar/render?action=TEMPLATE&text=${text}&dates=${dates}&details=${details}&location=${location}`;
+    try {
+        const startDate = new Date(event.date);
+        if (isNaN(startDate.getTime())) return '';
+        // Default duration is 2 hours
+        const endDate = new Date(startDate.getTime() + 2 * 60 * 60 * 1000);
+        
+        const formatToGCal = (date: Date) => {
+            return date.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+        };
+        
+        const dates = `${formatToGCal(startDate)}/${formatToGCal(endDate)}`;
+        const text = encodeURIComponent(event.title || 'Event');
+        const details = encodeURIComponent(`${event.description || ''}\n\nOrganizer: ${event.organizer || ''}\nPoints: ${event.points || 0}`);
+        const location = encodeURIComponent(event.venue || '');
+        
+        return `https://www.google.com/calendar/render?action=TEMPLATE&text=${text}&dates=${dates}&details=${details}&location=${location}`;
+    } catch (e) {
+        console.error("Failed to generate Google Calendar URL", e);
+        return '';
+    }
 };
 
 const styles: { [key: string]: React.CSSProperties } = {
