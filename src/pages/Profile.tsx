@@ -20,7 +20,8 @@ const MobileProfilePage = () => {
     const [activeTab, setActiveTab] = useState<'activity' | 'events'>('activity');
     const [isEditOpen, setIsEditOpen] = useState(false);
     const [isQrOpen, setIsQrOpen] = useState(false);
-    const [editForm, setEditForm] = useState({ name: '', bio: '', avatarUrl: '', coverUrl: '' });
+    const [editForm, setEditForm] = useState({ name: '', bio: '', avatarUrl: '', coverUrl: '', div: '', year: '', department: '' });
+    const [validationError, setValidationError] = useState('');
     
     // Dropdown state for three-dot menu
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -95,17 +96,40 @@ const MobileProfilePage = () => {
 
     const openEditProfile = () => {
         if (!profileUser) return;
+        setValidationError('');
         setEditForm({
             name: profileUser.name,
             bio: profileUser.bio || '',
             avatarUrl: profileUser.avatarUrl || '',
             coverUrl: profileUser.coverUrl || '',
+            div: profileUser.div || '',
+            year: profileUser.year || '',
+            department: profileUser.department || '',
         });
         setIsEditOpen(true);
     };
 
     const handleSaveProfile = async () => {
         setError('');
+        setValidationError('');
+        if (currentUser?.role === 'student') {
+            if (!editForm.name.trim()) {
+                setValidationError('Full Name is required.');
+                return;
+            }
+            if (!editForm.div) {
+                setValidationError('Division is required.');
+                return;
+            }
+            if (!editForm.year) {
+                setValidationError('Year is required.');
+                return;
+            }
+            if (!editForm.department) {
+                setValidationError('Department is required.');
+                return;
+            }
+        }
         try {
             const response = await updateCurrentUserProfile(editForm);
             setProfileUser(response.user);
@@ -254,6 +278,17 @@ const MobileProfilePage = () => {
                     {isMyProfile ? (
                         <>
                             <button style={{ ...styles.editButton, flex: 3 }} onClick={openEditProfile}>Edit Profile</button>
+                            <button 
+                                style={{ 
+                                    ...styles.editButton, 
+                                    flex: 3, 
+                                    backgroundColor: 'var(--brand-purple)', 
+                                    color: 'white' 
+                                }} 
+                                onClick={() => setIsQrOpen(true)}
+                            >
+                                🎫 Show QR Ticket
+                            </button>
                             <div style={{ position: 'relative' }}>
                                 <button style={styles.moreButton} onClick={() => setIsDropdownOpen(!isDropdownOpen)}>
                                     <MoreHorizontal size={24} color="#374151" />
@@ -444,10 +479,71 @@ const MobileProfilePage = () => {
                             </div>
                         </div>
 
-                        <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', marginBottom: '6px', color: '#374151' }}>Full Name</label>
+                        {validationError && (
+                            <div style={{ color: '#EF4444', fontSize: '14px', fontWeight: 'bold', marginBottom: '12px', textAlign: 'left' }}>
+                                ⚠️ {validationError}
+                            </div>
+                        )}
+
+                        <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', marginBottom: '6px', color: '#374151', textAlign: 'left' }}>
+                            Full Name {currentUser?.role === 'student' && <span style={{ color: '#EF4444' }}>*</span>}
+                        </label>
                         <input style={styles.input} placeholder="Name" value={editForm.name} onChange={(event) => setEditForm({ ...editForm, name: event.target.value })} />
                         
-                        <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', marginBottom: '6px', color: '#374151' }}>Bio</label>
+                        {currentUser?.role === 'student' && (
+                            <>
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', marginBottom: '6px', color: '#374151', textAlign: 'left' }}>
+                                    Division <span style={{ color: '#EF4444' }}>*</span>
+                                </label>
+                                <select 
+                                    style={styles.input} 
+                                    value={editForm.div} 
+                                    onChange={(event) => setEditForm({ ...editForm, div: event.target.value })}
+                                >
+                                    <option value="">Select Division</option>
+                                    <option value="A">A</option>
+                                    <option value="B">B</option>
+                                    <option value="C">C</option>
+                                    <option value="D">D</option>
+                                    <option value="E">E</option>
+                                </select>
+
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', marginBottom: '6px', color: '#374151', textAlign: 'left' }}>
+                                    Year <span style={{ color: '#EF4444' }}>*</span>
+                                </label>
+                                <select 
+                                    style={styles.input} 
+                                    value={editForm.year} 
+                                    onChange={(event) => setEditForm({ ...editForm, year: event.target.value })}
+                                >
+                                    <option value="">Select Year</option>
+                                    <option value="FY">FY</option>
+                                    <option value="SY">SY</option>
+                                    <option value="TY">TY</option>
+                                    <option value="Final Year">Final Year</option>
+                                </select>
+
+                                <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', marginBottom: '6px', color: '#374151', textAlign: 'left' }}>
+                                    Department <span style={{ color: '#EF4444' }}>*</span>
+                                </label>
+                                <select 
+                                    style={styles.input} 
+                                    value={editForm.department} 
+                                    onChange={(event) => setEditForm({ ...editForm, department: event.target.value })}
+                                >
+                                    <option value="">Select Department</option>
+                                    <option value="Computer Science">Computer Science</option>
+                                    <option value="IT">IT</option>
+                                    <option value="AI&DS">AI&DS</option>
+                                    <option value="E&TC">E&TC</option>
+                                    <option value="Mechanical">Mechanical</option>
+                                    <option value="Civil">Civil</option>
+                                    <option value="MBA">MBA</option>
+                                </select>
+                            </>
+                        )}
+
+                        <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', marginBottom: '6px', color: '#374151', textAlign: 'left' }}>Bio</label>
                         <textarea style={{ ...styles.input, ...styles.textarea }} placeholder="Bio" value={editForm.bio} onChange={(event) => setEditForm({ ...editForm, bio: event.target.value })} />
                         
                         <div style={styles.modalActions}>
@@ -467,12 +563,25 @@ const MobileProfilePage = () => {
                         </p>
                         <div style={{ display: 'inline-block', padding: '16px', backgroundColor: '#F9FAFB', borderRadius: '12px', border: '1px solid #E5E7EB', marginBottom: '16px' }}>
                             <img 
-                                src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(currentUser?.id || '')}`} 
+                                src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(
+                                    JSON.stringify({
+                                        id: currentUser?.id || '',
+                                        name: currentUser?.name || '',
+                                        div: currentUser?.div || '',
+                                        year: currentUser?.year || '',
+                                        dept: currentUser?.department || ''
+                                    })
+                                )}`} 
                                 alt="QR Ticket"
                                 style={{ width: '200px', height: '200px', display: 'block' }}
                             />
                         </div>
                         <div style={{ fontWeight: 'bold', fontSize: '15px', color: '#111827', marginBottom: '4px' }}>{currentUser?.name}</div>
+                        {currentUser?.role === 'student' && currentUser?.div && (
+                            <div style={{ fontSize: '14px', color: '#374151', marginBottom: '8px' }}>
+                                Class: {currentUser?.year} - {currentUser?.div} ({currentUser?.department})
+                            </div>
+                        )}
                         <div style={{ fontSize: '13px', color: '#6B7280', marginBottom: '20px' }}>ID: {currentUser?.id}</div>
                         <button style={styles.cancelButton} onClick={() => setIsQrOpen(false)}>Close</button>
                     </div>

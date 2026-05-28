@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Calendar, MapPin, Trophy, Users } from 'lucide-react';
 import type { HiveEvent } from '../../lib/api';
 
@@ -17,6 +17,12 @@ const formatEventDate = (date: string) =>
     });
 
 const EventCard = ({ event, isRegistered, onRegister }: EventCardProps) => {
+    const navigate = useNavigate();
+
+    const handleCardClick = () => {
+        navigate(`/event/${event.id}`);
+    };
+
     const handleRegister = (clickEvent: React.MouseEvent<HTMLButtonElement>) => {
         clickEvent.preventDefault();
         clickEvent.stopPropagation();
@@ -24,44 +30,42 @@ const EventCard = ({ event, isRegistered, onRegister }: EventCardProps) => {
     };
 
     return (
-        <Link to={`/event/${event.id}`} style={styles.link}>
-            <div style={styles.card}>
-                <div style={{ ...styles.imagePlaceholder, backgroundImage: `url(${event.imageUrl})` }}>
-                    <div style={styles.tag}>{event.category}</div>
-                    <div style={styles.pointsTag}>
-                        <Trophy size={14} color="#FBBF24" />
-                        <span>{event.points}</span>
-                    </div>
-                </div>
-                <div style={styles.content}>
-                    <h3 style={styles.title}>{event.title}</h3>
-                    <p style={styles.description}>{event.description}</p>
-                    <div style={styles.details}>
-                        <div style={styles.detailItem}>
-                            <Calendar size={16} color="#6B7280" />
-                            <span>{formatEventDate(event.date)}</span>
-                        </div>
-                        <div style={styles.detailItem}>
-                            <MapPin size={16} color="#6B7280" />
-                            <span>{event.venue}</span>
-                        </div>
-                        <div style={styles.detailItem}>
-                            <Users size={16} color="#6B7280" />
-                            <span>{event.registeredCount} registered / {event.capacity}</span>
-                        </div>
-                    </div>
-                    <div style={styles.footer}>
-                        <span style={styles.organizer}>by {event.organizer}</span>
-                        <button
-                            style={isRegistered ? styles.registeredButton : styles.registerButton}
-                            onClick={handleRegister}
-                        >
-                            {isRegistered ? 'Registered' : 'Register'}
-                        </button>
-                    </div>
+        <div style={styles.card} onClick={handleCardClick}>
+            <div style={{ ...styles.imagePlaceholder, backgroundImage: `url(${event.imageUrl})` }}>
+                <div style={styles.tag}>{event.category}</div>
+                <div style={styles.pointsTag}>
+                    <Trophy size={14} color="#FBBF24" />
+                    <span>{event.points}</span>
                 </div>
             </div>
-        </Link>
+            <div style={styles.content}>
+                <h3 style={styles.title}>{event.title}</h3>
+                <p style={styles.description}>{event.description}</p>
+                <div style={styles.details}>
+                    <div style={styles.detailItem}>
+                        <Calendar size={16} color="#6B7280" />
+                        <span>{formatEventDate(event.date)}</span>
+                    </div>
+                    <div style={styles.detailItem}>
+                        <MapPin size={16} color="#6B7280" />
+                        <span>{event.venue}</span>
+                    </div>
+                    <div style={styles.detailItem}>
+                        <Users size={16} color="#6B7280" />
+                        <span>{event.registeredCount} registered / {event.capacity}</span>
+                    </div>
+                </div>
+                <div style={styles.footer}>
+                    <span style={styles.organizer}>by {event.organizer}</span>
+                    <button
+                        style={isRegistered ? styles.registeredButton : styles.registerButton}
+                        onClick={handleRegister}
+                    >
+                        {isRegistered ? 'Registered' : 'Register'}
+                    </button>
+                </div>
+            </div>
+        </div>
     );
 };
 

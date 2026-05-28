@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import { CalendarPlus, MessageSquare, Newspaper, ShieldCheck } from 'lucide-react';
+import { Html5Qrcode } from 'html5-qrcode';
 import { useAuth } from '../context/AuthContext';
 import { getEvents, verifyEventAttendance } from '../lib/api';
 import type { HiveEvent } from '../lib/api';
@@ -15,6 +16,8 @@ const ClubPanelPage = () => {
     const [attendanceStudentId, setAttendanceStudentId] = useState('');
     const [isVerifying, setIsVerifying] = useState(false);
     const [attendanceMessage, setAttendanceMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+    const [fastTrackEnabled, setFastTrackEnabled] = useState(false);
+    const [isCameraOpen, setIsCameraOpen] = useState(false);
 
     const handleVerifyAttendance = async () => {
         if (!selectedEventId || !attendanceStudentId.trim()) return;
@@ -22,6 +25,73 @@ const ClubPanelPage = () => {
         setAttendanceMessage(null);
         try {
             const res = await verifyEventAttendance(selectedEventId, attendanceStudentId.trim());
+            if (res.success) {
+                setAttendanceMessage({
+                    type: 'success',
+                    text: `Successfully verified attendance! Credited ${res.user.name} (${res.user.id}) with points.`
+                });
+                setAttendanceStudentId('');
+                const response = await getEvents();
+                setEvents(response.events.filter((event) => event.organizerId === user?.id));
+                if (fastTrackEnabled) {
+                    setTimeout(() => {
+                        const input = document.getElementById('attendance-input');
+                        if (input) {
+                            (input as HTMLInputElement).focus();
+                        }
+                    }, 50);
+                }
+            }
+        } catch (err) {
+            setAttendanceMessage({
+                type: 'error',
+                text: err instanceof Error ? err.message : 'Failed to verify attendance'
+            });
+            if (fastTrackEnabled) {
+                setTimeout(() => {
+                    const input = document.getElementById('attendance-input');
+                    if (input) {
+                        (input as HTMLInputElement).focus();
+                    }
+                }, 50);
+            }
+        } finally {
+            setIsVerifying(false);
+        }
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            void handleVerifyAttendance();
+        }
+    };
+
+    const handleDecodedQr = (text: string) => {
+        try {
+            const data = JSON.parse(text);
+            if (data && typeof data === 'object' && data.id) {
+                setAttendanceStudentId(data.id);
+                setAttendanceMessage({
+                    type: 'success',
+                    text: `Scanned user: ${data.name || data.id} (Div: ${data.div || '-'}, Year: ${data.year || '-'}, Dept: ${data.dept || '-'})`
+                });
+                void verifyScannedAttendance(data.id);
+            } else {
+                setAttendanceStudentId(text);
+                void verifyScannedAttendance(text);
+            }
+        } catch {
+            setAttendanceStudentId(text);
+            void verifyScannedAttendance(text);
+        }
+    };
+
+    const verifyScannedAttendance = async (studentId: string) => {
+        if (!selectedEventId || !studentId.trim()) return;
+        setIsVerifying(true);
+        try {
+            const res = await verifyEventAttendance(selectedEventId, studentId.trim());
             if (res.success) {
                 setAttendanceMessage({
                     type: 'success',
@@ -42,11 +112,65 @@ const ClubPanelPage = () => {
     };
 
     const handleSimulateScan = () => {
-        const simulatedId = prompt("Scan Student QR ticket code (Simulated check-in). Enter Student ID/Handle:", user?.id || "yash");
+        const simulatedId = prompt("Scan Student QR ticket code (Simulated check-in). Enter Student ID/Handle or JSON:", user?.id || "yash");
         if (simulatedId) {
-            setAttendanceStudentId(simulatedId);
+            handleDecodedQr(simulatedId);
         }
     };
+
+    useEffect(() => {
+        if (!isCameraOpen) return;
+        
+        let html5QrCode: Html5Qrcode | null = null;
+        const qrId = 'qr-camera-element';
+        
+        const startScanner = async () => {
+            try {
+                html5QrCode = new Html5Qrcode(qrId);
+                await html5QrCode.start(
+                    { facingMode: "environment" },
+                    {
+                        fps: 10,
+                        qrbox: { width: 250, height: 250 }
+                    },
+                    (decodedText) => {
+                        handleDecodedQr(decodedText);
+                        stopScanner();
+                    },
+                    () => {
+                        // scanning
+                    }
+                );
+            } catch (err) {
+                console.error("Camera access failed", err);
+                alert("Failed to access camera. Please ensure permissions are granted.");
+                setIsCameraOpen(false);
+            }
+        };
+        
+        const stopScanner = () => {
+            if (html5QrCode && html5QrCode.isScanning) {
+                html5QrCode.stop()
+                    .then(() => {
+                        setIsCameraOpen(false);
+                    })
+                    .catch((err) => {
+                        console.error("Failed to stop scanner", err);
+                        setIsCameraOpen(false);
+                    });
+            } else {
+                setIsCameraOpen(false);
+            }
+        };
+
+        void startScanner();
+        
+        return () => {
+            if (html5QrCode && html5QrCode.isScanning) {
+                void html5QrCode.stop().catch(err => console.error("Failed to stop scanner on unmount", err));
+            }
+        };
+    }, [isCameraOpen]);
 
     useEffect(() => {
         const load = async () => {
@@ -134,10 +258,12 @@ const ClubPanelPage = () => {
                     <div style={{ flex: 1, minWidth: '200px' }}>
                         <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '6px', color: '#374151' }}>Student ID or Handle</label>
                         <input 
+                            id="attendance-input"
                             type="text" 
                             placeholder="e.g. yash12" 
                             value={attendanceStudentId}
                             onChange={(e) => setAttendanceStudentId(e.target.value)}
+                            onKeyDown={handleKeyDown}
                             style={styles.input}
                         />
                     </div>
@@ -149,12 +275,71 @@ const ClubPanelPage = () => {
                         {isVerifying ? 'Verifying...' : 'Verify & Credit Points'}
                     </button>
                     <button 
+                        onClick={() => setIsCameraOpen(true)}
+                        disabled={isVerifying || !selectedEventId}
+                        style={{ ...styles.verifyButton, backgroundColor: '#10B981', ...((isVerifying || !selectedEventId) ? styles.disabledButton : {}) }}
+                    >
+                        📸 Scan QR Code
+                    </button>
+                    <button 
                         onClick={handleSimulateScan}
                         disabled={isVerifying || !selectedEventId}
                         style={{ ...styles.scanButton, ...((isVerifying || !selectedEventId) ? styles.disabledButton : {}) }}
                     >
-                        📸 Simulate QR Scan
+                        Simulate Scan
                     </button>
+                </div>
+
+                {isCameraOpen && (
+                    <div style={styles.modalBackdrop} onClick={() => setIsCameraOpen(false)}>
+                        <div style={{ ...styles.modalContent, maxWidth: '480px', textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                            <h3 style={{ margin: '0 0 12px 0', fontSize: '18px', fontWeight: 'bold', color: '#111827' }}>
+                                Scan Student QR Ticket
+                            </h3>
+                            <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '16px' }}>
+                                Center the QR code in the camera frame below to automatically verify attendance.
+                            </p>
+                            <div style={{
+                                position: 'relative',
+                                width: '100%',
+                                maxWidth: '320px',
+                                aspectRatio: '1',
+                                margin: '0 auto 20px auto',
+                                backgroundColor: 'black',
+                                borderRadius: '12px',
+                                overflow: 'hidden',
+                                border: '2px solid var(--brand-purple)'
+                            }}>
+                                <div id="qr-camera-element" style={{ width: '100%', height: '100%' }} />
+                            </div>
+                            <button 
+                                onClick={() => setIsCameraOpen(false)}
+                                style={{
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    padding: '10px 20px',
+                                    backgroundColor: '#EF4444',
+                                    color: 'white',
+                                    fontWeight: 'bold',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                }}
+                            >
+                                Cancel / Close Camera
+                            </button>
+                        </div>
+                    </div>
+                )}
+                <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', color: 'var(--brand-purple)' }}>
+                        <input 
+                            type="checkbox"
+                            checked={fastTrackEnabled}
+                            onChange={(e) => setFastTrackEnabled(e.target.checked)}
+                            style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                        />
+                        ⚡ Fast-Track Scan Mode (Auto-verify & refocus on Enter)
+                    </label>
                 </div>
                 {attendanceMessage && (
                     <div style={{ 
@@ -313,6 +498,26 @@ const styles: { [key: string]: CSSProperties } = {
     disabledButton: {
         opacity: 0.6,
         cursor: 'not-allowed'
+    },
+    modalBackdrop: {
+        position: 'fixed',
+        inset: 0,
+        zIndex: 1000,
+        backgroundColor: 'rgba(17, 24, 39, 0.6)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '16px',
+    },
+    modalContent: {
+        width: '100%',
+        maxWidth: '440px',
+        backgroundColor: 'white',
+        borderRadius: '16px',
+        padding: '24px',
+        border: '1px solid #E5E7EB',
+        maxHeight: '90vh',
+        overflowY: 'auto',
     }
 };
 

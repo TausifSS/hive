@@ -20,6 +20,9 @@ export interface User {
     followers?: string[];
     following?: string[];
     badges?: { id: string; name: string; icon: string }[];
+    div?: string;
+    year?: string;
+    department?: string;
 }
 
 export interface AuthResponse {
@@ -132,6 +135,18 @@ export interface TopStory {
     authorId?: string | null;
     createdAt: string;
     author?: User | null;
+}
+
+export interface EventAttendance {
+    userId: string;
+    name: string;
+    email: string;
+    handle: string;
+    div?: string;
+    year?: string;
+    department?: string;
+    attended: boolean;
+    registeredAt: string;
 }
 
 export interface ClubApplication {
@@ -503,6 +518,9 @@ async function demoRequest<T>(path: string, options: RequestOptions = {}): Promi
         user.bio = String(body.bio ?? user.bio ?? '');
         user.avatarUrl = String(body.avatarUrl ?? user.avatarUrl ?? '');
         user.coverUrl = String(body.coverUrl ?? user.coverUrl ?? '');
+        user.div = String(body.div ?? user.div ?? '');
+        user.year = String(body.year ?? user.year ?? '');
+        user.department = String(body.department ?? user.department ?? '');
         return finish({ user: publicDemoUser(user) } as T);
     }
 
@@ -613,6 +631,57 @@ async function demoRequest<T>(path: string, options: RequestOptions = {}): Promi
         return finish({ event: demoEvent(db, event) } as T);
     }
 
+    if (parts[0] === 'api' && parts[1] === 'events' && parts[2] && !parts[3] && method === 'DELETE') {
+        const user = requireDemoUser(db);
+        const event = db.events.find((candidate) => candidate.id === parts[2]);
+        if (!event) throw new Error('Not found');
+        if (event.organizerId !== user.id && user.role !== 'Admin') throw new Error('Forbidden');
+        db.events = db.events.filter((candidate) => candidate.id !== parts[2]);
+        writeDemoDb(db);
+        return finish({ ok: true } as T);
+    }
+
+    if (parts[0] === 'api' && parts[1] === 'events' && parts[2] && !parts[3] && method === 'PATCH') {
+        const user = requireDemoUser(db);
+        const event = db.events.find((candidate) => candidate.id === parts[2]);
+        if (!event) throw new Error('Not found');
+        if (event.organizerId !== user.id && user.role !== 'Admin') throw new Error('Forbidden');
+        
+        event.title = String(body.title ?? event.title);
+        event.description = String(body.description ?? event.description);
+        event.category = String(body.category ?? event.category);
+        event.date = String(body.date ?? event.date);
+        event.venue = String(body.venue ?? event.venue);
+        event.capacity = Number(body.capacity ?? event.capacity);
+        event.points = Number(body.points ?? event.points);
+        event.imageUrl = String(body.imageUrl || body.image_url || event.imageUrl);
+        
+        return finish({ event: demoEvent(db, event) } as T);
+    }
+
+    if (parts[0] === 'api' && parts[1] === 'events' && parts[2] && parts[3] === 'registrations' && method === 'GET') {
+        const user = requireDemoUser(db);
+        const event = db.events.find((candidate) => candidate.id === parts[2]);
+        if (!event) throw new Error('Not found');
+        if (event.organizerId !== user.id && user.role !== 'Admin') throw new Error('Forbidden');
+        
+        const list = event.registeredUserIds.map((uid) => {
+            const u = db.users.find((candidate) => candidate.id === uid);
+            return {
+                userId: uid,
+                name: u?.name || 'Student User',
+                email: u?.email || `${uid}@ghrcem.edu`,
+                handle: u?.handle || uid,
+                div: u?.div || '',
+                year: u?.year || '',
+                department: u?.department || '',
+                attended: true,
+                registeredAt: event.createdAt || nowIso(),
+            };
+        });
+        return finish({ registrations: list } as T);
+    }
+
     if (parts[0] === 'api' && parts[1] === 'events' && parts[3] === 'register' && method === 'POST') {
         const user = requireDemoUser(db);
         const event = db.events.find((candidate) => candidate.id === parts[2]);
@@ -644,7 +713,8 @@ async function demoRequest<T>(path: string, options: RequestOptions = {}): Promi
     }
 
     if (url.pathname === '/api/leaderboard' && method === 'GET') {
-        return finish({ users: db.users.slice().sort((a, b) => Number(b.points || 0) - Number(a.points || 0)).map((user, index) => ({ ...publicDemoUser(user), rank: index + 1 })) } as T);
+        const studentUsers = db.users.filter((u) => u.role === 'student');
+        return finish({ users: studentUsers.slice().sort((a, b) => Number(b.points || 0) - Number(a.points || 0)).map((user, index) => ({ ...publicDemoUser(user), rank: index + 1 })) } as T);
     }
 
     if (url.pathname === '/api/conversations' && method === 'GET') {
@@ -866,7 +936,7 @@ async function demoRequest<T>(path: string, options: RequestOptions = {}): Promi
 
     if (url.pathname === '/api/stories' && method === 'POST') {
         const user = requireDemoUser(db);
-        if (user.role !== 'Admin') throw new Error('You do not have permission for this action');
+        if (user.role !== 'Admin' && user.role !== 'club_admin') throw new Error('You do not have permission for this action');
         const story: TopStory = { id: crypto.randomUUID(), title: String(body.title || ''), summary: String(body.summary || ''), body: String(body.body || body.summary || ''), category: String(body.category || 'Official'), authorId: user.id, createdAt: nowIso(), author: publicDemoUser(user) };
         db.stories.unshift(story);
         return finish({ story } as T);
@@ -876,6 +946,29 @@ async function demoRequest<T>(path: string, options: RequestOptions = {}): Promi
         const story = db.stories.find((candidate) => candidate.id === parts[2]);
         if (!story) throw new Error('Not found');
         return finish({ story } as T);
+    }
+
+    if (parts[0] === 'api' && parts[1] === 'stories' && parts[2] && method === 'PATCH') {
+        const user = requireDemoUser(db);
+        if (user.role !== 'Admin' && user.role !== 'club_admin') throw new Error('You do not have permission for this action');
+        const idx = db.stories.findIndex((candidate) => candidate.id === parts[2]);
+        if (idx === -1) throw new Error('Not found');
+        const updatedStory = {
+            ...db.stories[idx],
+            title: String(body.title || db.stories[idx].title),
+            summary: String(body.summary || db.stories[idx].summary),
+            body: String(body.body || db.stories[idx].body),
+            category: String(body.category || db.stories[idx].category),
+        };
+        db.stories[idx] = updatedStory;
+        return finish({ story: updatedStory } as T);
+    }
+
+    if (parts[0] === 'api' && parts[1] === 'stories' && parts[2] && method === 'DELETE') {
+        const user = requireDemoUser(db);
+        if (user.role !== 'Admin' && user.role !== 'club_admin') throw new Error('You do not have permission for this action');
+        db.stories = db.stories.filter((candidate) => candidate.id !== parts[2]);
+        return finish({ ok: true } as T);
     }
 
     if (url.pathname === '/api/admin/users' && method === 'GET') {
@@ -1153,10 +1246,33 @@ export const createEvent = (body: {
         body,
     });
 
+export const updateEvent = (eventId: string, body: {
+    title?: string;
+    description?: string;
+    category?: string;
+    date?: string;
+    venue?: string;
+    capacity?: number;
+    points?: number;
+    imageUrl?: string;
+}) =>
+    apiRequest<{ event: HiveEvent }>(`/api/events/${eventId}`, {
+        method: 'PATCH',
+        body,
+    });
+
 export const registerForEvent = (eventId: string) =>
     apiRequest<{ event: HiveEvent; user: User }>(`/api/events/${eventId}/register`, {
         method: 'POST',
     });
+
+export const deleteEvent = (eventId: string) =>
+    apiRequest<{ ok: boolean }>(`/api/events/${eventId}`, {
+        method: 'DELETE',
+    });
+
+export const getEventRegistrations = (eventId: string) =>
+    apiRequest<{ registrations: EventAttendance[] }>(`/api/events/${eventId}/registrations`);
 
 export const getLeaderboard = () =>
     apiRequest<{ users: LeaderboardUser[] }>('/api/leaderboard');
@@ -1238,6 +1354,17 @@ export const createTopStory = (body: { title: string; summary: string; body?: st
     apiRequest<{ story: TopStory }>('/api/stories', {
         method: 'POST',
         body,
+    });
+
+export const updateTopStory = (storyId: string, body: { title: string; summary: string; body?: string; category?: string }) =>
+    apiRequest<{ story: TopStory }>(`/api/stories/${storyId}`, {
+        method: 'PATCH',
+        body,
+    });
+
+export const deleteTopStory = (storyId: string) =>
+    apiRequest<{ ok: boolean }>(`/api/stories/${storyId}`, {
+        method: 'DELETE',
     });
 
 export const getAdminUsers = () =>

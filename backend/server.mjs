@@ -621,6 +621,44 @@ async function handleRoute(req, res) {
     return;
   }
 
+  if (pathParts[0] === 'api' && pathParts[1] === 'stories' && pathParts[2] && req.method === 'PATCH') {
+    const currentUser = await requireUser(req);
+    if (!currentUser) {
+      send(req, res, 401, { error: 'Authentication required' });
+      return;
+    }
+    if (!isAdmin(currentUser) && currentUser.role !== 'club_admin') {
+      sendForbidden(req, res);
+      return;
+    }
+
+    const body = await parseBody(req);
+    if (!body.title || !body.summary) {
+      send(req, res, 400, { error: 'title and summary are required' });
+      return;
+    }
+
+    const updated = await db.updateTopStory(pathParts[2], body);
+    send(req, res, 200, { story: updated });
+    return;
+  }
+
+  if (pathParts[0] === 'api' && pathParts[1] === 'stories' && pathParts[2] && req.method === 'DELETE') {
+    const currentUser = await requireUser(req);
+    if (!currentUser) {
+      send(req, res, 401, { error: 'Authentication required' });
+      return;
+    }
+    if (!isAdmin(currentUser) && currentUser.role !== 'club_admin') {
+      sendForbidden(req, res);
+      return;
+    }
+
+    await db.deleteTopStory(pathParts[2]);
+    send(req, res, 200, { ok: true });
+    return;
+  }
+
   if (url.pathname === '/api/admin/users' && req.method === 'GET') {
     const currentUser = await requireUser(req);
     if (!currentUser) {
@@ -1021,13 +1059,75 @@ async function handleRoute(req, res) {
     return;
   }
 
-  if (pathParts[0] === 'api' && pathParts[1] === 'events' && pathParts[2] && req.method === 'GET') {
+  if (pathParts[0] === 'api' && pathParts[1] === 'events' && pathParts[2] && !pathParts[3] && req.method === 'GET') {
     const event = await db.getEventById(pathParts[2]);
     if (!event) {
       notFound(req, res);
       return;
     }
     send(req, res, 200, { event });
+    return;
+  }
+
+  if (pathParts[0] === 'api' && pathParts[1] === 'events' && pathParts[2] && !pathParts[3] && req.method === 'DELETE') {
+    const currentUser = await requireUser(req);
+    if (!currentUser) {
+      send(req, res, 401, { error: 'Authentication required' });
+      return;
+    }
+    const event = await db.getEventById(pathParts[2]);
+    if (!event) {
+      notFound(req, res);
+      return;
+    }
+    if (event.organizerId !== currentUser.id && currentUser.role !== 'Admin') {
+      send(req, res, 403, { error: 'Forbidden' });
+      return;
+    }
+    await db.deleteEvent(pathParts[2]);
+    send(req, res, 200, { ok: true });
+    return;
+  }
+
+  if (pathParts[0] === 'api' && pathParts[1] === 'events' && pathParts[2] && !pathParts[3] && req.method === 'PATCH') {
+    const currentUser = await requireUser(req);
+    if (!currentUser) {
+      send(req, res, 401, { error: 'Authentication required' });
+      return;
+    }
+    const event = await db.getEventById(pathParts[2]);
+    if (!event) {
+      notFound(req, res);
+      return;
+    }
+    if (event.organizerId !== currentUser.id && currentUser.role !== 'Admin') {
+      sendForbidden(req, res);
+      return;
+    }
+
+    const body = await parseBody(req);
+    const updated = await db.updateEvent(event.id, body);
+    send(req, res, 200, { event: updated });
+    return;
+  }
+
+  if (pathParts[0] === 'api' && pathParts[1] === 'events' && pathParts[2] && pathParts[3] === 'registrations' && req.method === 'GET') {
+    const currentUser = await requireUser(req);
+    if (!currentUser) {
+      send(req, res, 401, { error: 'Authentication required' });
+      return;
+    }
+    const event = await db.getEventById(pathParts[2]);
+    if (!event) {
+      notFound(req, res);
+      return;
+    }
+    if (event.organizerId !== currentUser.id && currentUser.role !== 'Admin') {
+      send(req, res, 403, { error: 'Forbidden' });
+      return;
+    }
+    const list = await db.listEventRegistrations(pathParts[2]);
+    send(req, res, 200, { registrations: list });
     return;
   }
 

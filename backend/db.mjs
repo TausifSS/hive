@@ -261,6 +261,9 @@ function camelUser(row) {
     coverUrl: row.cover_url,
     points: row.points,
     blockedAt: row.blocked_at,
+    div: row.div || '',
+    year: row.year || '',
+    department: row.department || '',
     followers: [],
     following: [],
   };
@@ -591,14 +594,17 @@ async function updateUserProfile(userId, fields) {
   const bio = String(fields.bio ?? currentUser.bio ?? '').trim().slice(0, 240);
   const avatarUrl = String(fields.avatarUrl ?? currentUser.avatarUrl ?? '').trim();
   const coverUrl = String(fields.coverUrl ?? currentUser.coverUrl ?? '').trim();
+  const div = String(fields.div ?? currentUser.div ?? '').trim().slice(0, 10);
+  const year = String(fields.year ?? currentUser.year ?? '').trim().slice(0, 20);
+  const department = String(fields.department ?? currentUser.department ?? '').trim().slice(0, 80);
 
   if (!name) return { error: 'name-required' };
 
   await dbQueryRun(`
     UPDATE users
-    SET name = ?, bio = ?, avatar_url = ?, cover_url = ?
+    SET name = ?, bio = ?, avatar_url = ?, cover_url = ?, div = ?, year = ?, department = ?
     WHERE id = ?
-  `, [name, bio, avatarUrl, coverUrl, userId]);
+  `, [name, bio, avatarUrl, coverUrl, div, year, department, userId]);
 
   return await getUserById(userId);
 }
@@ -824,12 +830,14 @@ async function verifyAttendance(eventId, userId) {
 
   const isAlreadyRegistered = event.registeredUserIds.includes(user.id);
   if (!isAlreadyRegistered) {
-    await dbQueryRun('INSERT INTO event_registrations (event_id, user_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING', [
+    await dbQueryRun('INSERT INTO event_registrations (event_id, user_id, attended, created_at) VALUES (?, ?, 1, ?) ON CONFLICT DO NOTHING', [
       eventId,
       user.id,
       new Date().toISOString()
     ]);
     await dbQueryRun('UPDATE users SET points = points + ? WHERE id = ?', [event.points, user.id]);
+  } else {
+    await dbQueryRun('UPDATE event_registrations SET attended = 1 WHERE event_id = ? AND user_id = ?', [eventId, user.id]);
   }
 
   return {
@@ -838,9 +846,57 @@ async function verifyAttendance(eventId, userId) {
   };
 }
 
+async function deleteEvent(eventId) {
+  await dbQueryRun('DELETE FROM events WHERE id = ?', [eventId]);
+}
+
+async function listEventRegistrations(eventId) {
+  const rows = await dbQueryAll(`
+    SELECT r.user_id, r.attended, r.created_at as registered_at, u.name, u.email, u.handle, u.div, u.year, u.department
+    FROM event_registrations r
+    JOIN users u ON r.user_id = u.id
+    WHERE r.event_id = ?
+    ORDER BY r.created_at DESC
+  `, [eventId]);
+  return rows.map((row) => ({
+    userId: row.user_id,
+    name: row.name,
+    email: row.email,
+    handle: row.handle,
+    div: row.div || '',
+    year: row.year || '',
+    department: row.department || '',
+    attended: Boolean(row.attended),
+    registeredAt: row.registered_at,
+  }));
+}
+
+async function updateEvent(eventId, fields) {
+  const current = await getEventById(eventId);
+  if (!current) return null;
+
+  const title = String(fields.title || current.title).trim();
+  const description = String(fields.description ?? current.description ?? '').trim();
+  const category = String(fields.category || current.category).trim();
+  const date = String(fields.date || current.date).trim();
+  const venue = String(fields.venue || current.venue).trim();
+  const capacity = Number(fields.capacity ?? current.capacity);
+  const points = Number(fields.points ?? current.points);
+  const imageUrl = String(fields.imageUrl || fields.image_url || current.imageUrl).trim();
+
+  await dbQueryRun(`
+    UPDATE events
+    SET title = ?, description = ?, category = ?, date = ?, venue = ?, capacity = ?, points = ?, image_url = ?
+    WHERE id = ?
+  `, [title, description, category, date, venue, capacity, points, imageUrl, eventId]);
+
+  return await getEventById(eventId);
+}
+
 async function listLeaderboard() {
   const users = await listUsers();
-  return users.map((user, index) => ({
+  const students = users.filter((u) => u.role === 'student');
+  return students.map((user, index) => ({
     rank: index + 1,
     ...publicUser(user),
   }));
@@ -1135,6 +1191,26 @@ async function createTopStory({ title, summary, body, category = 'Official', aut
   return await getTopStoryById(id);
 }
 
+async function deleteTopStory(storyId) {
+  await dbQueryRun('DELETE FROM top_stories WHERE id = ?', [storyId]);
+  return { ok: true };
+}
+
+async function updateTopStory(storyId, { title, summary, body, category = 'Official' }) {
+  await dbQueryRun(`
+    UPDATE top_stories
+    SET title = ?, summary = ?, body = ?, category = ?
+    WHERE id = ?
+  `, [
+    String(title || '').trim().slice(0, 140),
+    String(summary || '').trim().slice(0, 260),
+    String(body || summary || '').trim().slice(0, 3000),
+    String(category || 'Official').trim().slice(0, 60),
+    storyId
+  ]);
+  return await getTopStoryById(storyId);
+}
+
 async function createPostReport(postId, reportedBy, reason) {
   const id = randomUUID();
   await dbQueryRun(`
@@ -1396,6 +1472,18 @@ async function runMigrations() {
   if (!(await columnExists('channels', 'auto_delete_hours'))) {
     await dbQueryExec('ALTER TABLE channels ADD COLUMN auto_delete_hours INTEGER DEFAULT 0;');
   }
+  if (!(await columnExists('event_registrations', 'attended'))) {
+    await dbQueryExec('ALTER TABLE event_registrations ADD COLUMN attended INTEGER DEFAULT 0;');
+  }
+  if (!(await columnExists('users', 'div'))) {
+    await dbQueryExec("ALTER TABLE users ADD COLUMN div TEXT DEFAULT '';");
+  }
+  if (!(await columnExists('users', 'year'))) {
+    await dbQueryExec("ALTER TABLE users ADD COLUMN year TEXT DEFAULT '';");
+  }
+  if (!(await columnExists('users', 'department'))) {
+    await dbQueryExec("ALTER TABLE users ADD COLUMN department TEXT DEFAULT '';");
+  }
 
   await dbQueryExec(`
     CREATE TABLE IF NOT EXISTS post_reports (
@@ -1550,7 +1638,10 @@ export const db = {
   getEventById,
   listEvents,
   createEvent,
+  updateEvent,
   registerForEvent,
+  deleteEvent,
+  listEventRegistrations,
   listLeaderboard,
   getConversation,
   getOrCreateConversation,
@@ -1568,6 +1659,8 @@ export const db = {
   listTopStories,
   getTopStoryById,
   createTopStory,
+  deleteTopStory,
+  updateTopStory,
   deleteExpiredTopStories,
   createPostReport,
   listPostReports,

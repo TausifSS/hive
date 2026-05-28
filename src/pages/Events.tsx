@@ -192,7 +192,7 @@ const EventsPage = () => {
                             />
                             <input
                                 style={styles.input}
-                                placeholder="Date and time (2026-06-01 10:30)"
+                                type="datetime-local"
                                 value={eventForm.date}
                                 onChange={(inputEvent) => setEventForm({ ...eventForm, date: inputEvent.target.value })}
                                 required

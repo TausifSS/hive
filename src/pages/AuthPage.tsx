@@ -242,14 +242,14 @@ const AuthPage = () => {
                                     <div style={styles.inputWrap}><Mail size={18} /><input type="email" value={studentEmail} onChange={(event) => setStudentEmail(event.target.value)} style={styles.input} required /></div>
                                     <label style={styles.label}>Full Name</label>
                                     <div style={styles.inputWrap}><UserRound size={18} /><input value={studentName} onChange={(event) => setStudentName(event.target.value)} style={styles.input} /></div>
-                                    <button type="button" style={styles.secondaryButton} onClick={handleSendResetOtp} disabled={isSubmitting || !studentEmail}>Send OTP</button>
+                                    <button type="button" style={styles.secondaryButton} onClick={handleSendResetOtp} disabled={isSubmitting || !studentEmail}>{isSubmitting ? 'Sending...' : 'Send OTP'}</button>
                                     {otpMessage && <p style={styles.successText}>{otpMessage}</p>}
                                     {devOtp && <div style={styles.devOtpBox}><span>Local OTP auto-filled</span><strong>{devOtp}</strong></div>}
                                     <label style={styles.label}>OTP</label>
                                     <div style={styles.inputWrap}><Shield size={18} /><input value={resetOtp} onChange={(event) => setResetOtp(event.target.value)} style={styles.input} maxLength={6} required /></div>
                                     <label style={styles.label}>New Password</label>
                                     <div style={styles.inputWrap}><Lock size={18} /><input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} style={styles.input} required /></div>
-                                    <button type="submit" style={styles.primaryButton} disabled={isSubmitting}>Verify and Continue</button>
+                                    <button type="submit" style={styles.primaryButton} disabled={isSubmitting}>{isSubmitting ? 'Verifying...' : 'Verify and Continue'}</button>
                                     <button type="button" style={styles.textButton} onClick={() => setResetMode(false)}>Back to Login</button>
                                 </form>
                             )}
@@ -272,7 +272,7 @@ const AuthPage = () => {
                                     <span>{certificateFile ? certificateFile.name : 'Upload Registration Certificate'}</span>
                                     <input type="file" accept=".pdf,image/*" style={{ display: 'none' }} onChange={(event) => setCertificateFile(event.target.files?.[0] || null)} />
                                 </label>
-                                <button type="submit" style={styles.primaryButton} disabled={isSubmitting}>Submit for Verification</button>
+                                <button type="submit" style={styles.primaryButton} disabled={isSubmitting}>{isSubmitting ? 'Submitting...' : 'Submit for Verification'}</button>
                                 <button type="button" style={styles.textButton} onClick={handleClubStatus} disabled={!clubEmail}>Check Pending Status</button>
                                 {clubApplication && (
                                     <div style={styles.statusBox}>
