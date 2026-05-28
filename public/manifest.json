@@ -3,19 +3,19 @@
   "name": "HIVE - GHRCEM Digital Hub",
   "icons": [
     {
-      "src": "/Hive/images/hive_logo.png",
+      "src": "images/hive_logo.png",
       "type": "image/png",
       "sizes": "192x192",
       "purpose": "any"
     },
     {
-      "src": "/Hive/images/hive_logo.png",
+      "src": "images/hive_logo.png",
       "type": "image/png",
       "sizes": "512x512",
       "purpose": "any"
     }
   ],
-  "start_url": "/Hive/",
+  "start_url": "./",
   "background_color": "#111827",
   "theme_color": "#8B5CF6",
   "display": "standalone",
