@@ -1,8 +1,7 @@
 {
-  "cleanUrls": true,
   "rewrites": [
     {
-      "source": "/(.*)",
+      "source": "/((?!assets/|vite.svg|manifest.json|favicon.ico).*)",
       "destination": "/index.html"
     }
   ]
