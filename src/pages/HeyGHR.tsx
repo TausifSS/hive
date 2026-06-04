@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { CSSProperties, KeyboardEvent } from 'react';
-import { Bot, Mic, Send } from 'lucide-react';
+import { Bot, Mic, Send, UserRound, Sparkles } from 'lucide-react';
 import { askAssistant } from '../lib/api';
 
 interface AssistantMessage {
@@ -9,24 +9,40 @@ interface AssistantMessage {
     isUser?: boolean;
 }
 
+const SUGGESTIONS = [
+    { text: "Upcoming Events 📅", query: "Show me the upcoming events at campus" },
+    { text: "My Points 🏆", query: "Check my points and leaderboard status" },
+    { text: "About HIVE ⚡", query: "What is HIVE and how to use it?" },
+];
+
 const ChatBubble = ({ message, isUser }: { message: string; isUser?: boolean }) => (
     <div style={{ ...styles.bubbleContainer, justifyContent: isUser ? 'flex-end' : 'flex-start' }}>
+        {!isUser && (
+            <div style={styles.avatarGlow}>
+                <Bot size={18} color="white" />
+            </div>
+        )}
         <div style={{ ...styles.bubble, ...(isUser ? styles.userBubble : styles.aiBubble) }}>
             {message}
         </div>
+        {isUser && (
+            <div style={styles.userAvatar}>
+                <UserRound size={18} color="#6B7280" />
+            </div>
+        )}
     </div>
 );
 
 const HeyGHRPage = () => {
     const [messages, setMessages] = useState<AssistantMessage[]>([
-        { id: 'welcome', content: 'Hello! Ask me about events, points, posts, chat, login, or admin roles.' },
+        { id: 'welcome', content: "Hey, I'm GHR, your campus assistant! Ask me anything about events, points, leaderboard, or posts." },
     ]);
     const [input, setInput] = useState('');
     const [isSending, setIsSending] = useState(false);
     const [error, setError] = useState('');
 
-    const handleSend = async () => {
-        const content = input.trim();
+    const sendQuery = async (queryText: string) => {
+        const content = queryText.trim();
         if (!content || isSending) return;
 
         const userMessage = { id: `user-${Date.now()}`, content, isUser: true };
@@ -48,6 +64,14 @@ const HeyGHRPage = () => {
         }
     };
 
+    const handleSend = () => {
+        void sendQuery(input);
+    };
+
+    const handleSuggestionClick = (query: string) => {
+        void sendQuery(query);
+    };
+
     const handleMicClick = () => {
         setMessages((currentMessages) => [
             ...currentMessages,
@@ -60,17 +84,25 @@ const HeyGHRPage = () => {
 
     const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
         if (event.key === 'Enter') {
-            void handleSend();
+            handleSend();
         }
     };
 
     return (
         <div style={styles.container}>
             <div style={styles.header}>
-                <Bot size={32} color="var(--brand-purple)" />
-                <div>
-                    <h1 style={styles.title}>Hey GHR</h1>
-                    <p style={styles.subtitle}>Campus assistant connected to HIVE backend</p>
+                <div style={styles.headerTitleContainer}>
+                    <div style={styles.headerBotGlow}>
+                        <Bot size={22} color="white" />
+                    </div>
+                    <div>
+                        <h1 style={styles.title}>Hey GHR</h1>
+                        <p style={styles.subtitle}>AI Campus Assistant • Connected to HIVE</p>
+                    </div>
+                </div>
+                <div style={styles.aiBadge}>
+                    <Sparkles size={14} color="var(--brand-purple)" style={{ marginRight: '6px' }} />
+                    <span style={styles.aiBadgeText}>Gemini AI</span>
                 </div>
             </div>
 
@@ -78,14 +110,40 @@ const HeyGHRPage = () => {
                 {messages.map((message) => (
                     <ChatBubble key={message.id} message={message.content} isUser={message.isUser} />
                 ))}
-                {isSending && <ChatBubble message="Thinking..." />}
+                {isSending && (
+                    <div style={styles.bubbleContainer}>
+                        <div style={styles.avatarGlow}>
+                            <Bot size={18} color="white" />
+                        </div>
+                        <div style={{ ...styles.bubble, ...styles.aiBubble, fontStyle: 'italic', color: '#9CA3AF' }}>
+                            Thinking...
+                        </div>
+                    </div>
+                )}
                 {error && <p style={styles.errorText}>{error}</p>}
             </div>
+
+            {messages.length <= 1 && (
+                <div style={styles.suggestionsContainer}>
+                    <p style={styles.suggestionsTitle}>💡 Try asking:</p>
+                    <div style={styles.suggestionsGrid}>
+                        {SUGGESTIONS.map((s, idx) => (
+                            <button
+                                key={idx}
+                                onClick={() => handleSuggestionClick(s.query)}
+                                style={styles.suggestionChip}
+                            >
+                                {s.text}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             <div style={styles.inputArea}>
                 <input
                     type="text"
-                    placeholder="Ask about events, OTP, points..."
+                    placeholder="Ask me anything about GHR..."
                     value={input}
                     onChange={(event) => setInput(event.target.value)}
                     onKeyDown={handleKeyDown}
@@ -112,29 +170,57 @@ const styles: { [key: string]: CSSProperties } = {
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
-        backgroundColor: '#F3F4F6', // Lighter grey background for better contrast
+        backgroundColor: '#F5F3FF', // Very soft light purple background
     },
     header: {
         display: 'flex',
         alignItems: 'center',
-        gap: '16px',
-        padding: '24px 20px',
-        borderBottom: '1px solid #E5E7EB',
+        justifyContent: 'space-between',
+        padding: '20px',
+        borderBottom: '1px solid rgba(139, 92, 246, 0.1)',
         backgroundColor: 'white',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+        boxShadow: '0 4px 20px rgba(139, 92, 246, 0.05)',
+    },
+    headerTitleContainer: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '12px',
+    },
+    headerBotGlow: {
+        width: '42px',
+        height: '42px',
+        borderRadius: '12px',
+        background: 'linear-gradient(135deg, #7C3AED 0%, #9333EA 100%)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        boxShadow: '0 4px 10px rgba(124, 58, 237, 0.25)',
     },
     title: {
-        fontSize: '24px',
+        fontSize: '20px',
         fontWeight: '800',
         margin: 0,
-        color: 'var(--primary-dark)',
+        color: '#1F2937',
         letterSpacing: '-0.02em',
     },
     subtitle: {
-        fontSize: '13px',
+        fontSize: '12px',
         color: '#6B7280',
-        margin: '4px 0 0 0',
+        margin: '2px 0 0 0',
         fontWeight: 500,
+    },
+    aiBadge: {
+        display: 'flex',
+        alignItems: 'center',
+        backgroundColor: 'rgba(139, 92, 246, 0.08)',
+        border: '1px solid rgba(139, 92, 246, 0.15)',
+        padding: '6px 12px',
+        borderRadius: '20px',
+    },
+    aiBadgeText: {
+        fontSize: '12px',
+        fontWeight: '700',
+        color: 'var(--brand-purple)',
     },
     chatArea: {
         flex: 1,
@@ -142,30 +228,57 @@ const styles: { [key: string]: CSSProperties } = {
         overflowY: 'auto',
         display: 'flex',
         flexDirection: 'column',
-        gap: '20px',
+        gap: '16px',
+        background: 'linear-gradient(180deg, #F5F3FF 0%, #EDE9FE 100%)', // Premium gradient
     },
     bubbleContainer: {
         display: 'flex',
+        alignItems: 'flex-start',
+        margin: '4px 0',
+    },
+    avatarGlow: {
+        width: '36px',
+        height: '36px',
+        borderRadius: '50%',
+        background: 'linear-gradient(135deg, #8B5CF6 0%, #EC4899 100%)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: '10px',
+        boxShadow: '0 3px 8px rgba(139, 92, 246, 0.25)',
+        flexShrink: 0,
+    },
+    userAvatar: {
+        width: '36px',
+        height: '36px',
+        borderRadius: '50%',
+        backgroundColor: '#E5E7EB',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginLeft: '10px',
+        border: '1px solid #D1D5DB',
+        flexShrink: 0,
     },
     bubble: {
-        maxWidth: '82%', // Expanded bubble width for spacious look
-        padding: '14px 20px', // More breathing room inside bubbles
+        maxWidth: '75%',
+        padding: '12px 18px',
         borderRadius: '20px',
-        lineHeight: 1.55,
+        lineHeight: 1.5,
         fontSize: '15px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
     },
     aiBubble: {
-        backgroundColor: 'white',
-        border: '1px solid #E5E7EB',
-        color: 'var(--primary-dark)',
+        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+        border: '1px solid rgba(139, 92, 246, 0.1)',
+        color: '#1F2937',
         borderTopLeftRadius: '4px',
+        boxShadow: '0 4px 15px rgba(0, 0, 0, 0.03)',
     },
     userBubble: {
-        background: 'linear-gradient(135deg, #6A4BFF 0%, #8B5CF6 100%)', // Premium gradient
+        background: 'linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%)', // Violet/purple gradient
         color: 'white',
         borderTopRightRadius: '4px',
-        boxShadow: '0 3px 10px rgba(106, 75, 255, 0.25)',
+        boxShadow: '0 4px 15px rgba(124, 58, 237, 0.25)',
     },
     errorText: {
         color: '#DC2626',
@@ -177,29 +290,58 @@ const styles: { [key: string]: CSSProperties } = {
         fontSize: '14px',
         textAlign: 'center',
     },
+    suggestionsContainer: {
+        padding: '10px 20px',
+        backgroundColor: '#EDE9FE',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '8px',
+    },
+    suggestionsTitle: {
+        fontSize: '12px',
+        fontWeight: '700',
+        color: '#6D28D9',
+        margin: 0,
+    },
+    suggestionsGrid: {
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: '8px',
+    },
+    suggestionChip: {
+        backgroundColor: 'white',
+        border: '1px solid rgba(139, 92, 246, 0.15)',
+        borderRadius: '20px',
+        padding: '8px 16px',
+        fontSize: '13px',
+        fontWeight: '600',
+        color: '#4C1D95',
+        cursor: 'pointer',
+        boxShadow: '0 2px 6px rgba(0,0,0,0.02)',
+        transition: 'all 0.15s ease',
+    },
     inputArea: {
         display: 'flex',
         alignItems: 'center',
-        padding: '20px',
+        padding: '16px 20px',
         gap: '12px',
-        borderTop: '1px solid #E5E7EB',
+        borderTop: '1px solid rgba(139, 92, 246, 0.1)',
         backgroundColor: 'white',
-        boxShadow: '0 -2px 10px rgba(0,0,0,0.02)',
+        boxShadow: '0 -4px 20px rgba(139, 92, 246, 0.05)',
     },
     input: {
         flex: 1,
-        padding: '14px 20px', // Expanded input box height
-        borderRadius: '28px',
+        padding: '12px 20px',
+        borderRadius: '24px',
         border: '1px solid #E5E7EB',
         fontSize: '15px',
         outline: 'none',
         backgroundColor: '#F9FAFB',
-        transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
-        boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.02)',
+        transition: 'all 0.2s ease',
     },
     micButton: {
-        width: '48px',
-        height: '48px',
+        width: '42px',
+        height: '42px',
         borderRadius: '50%',
         border: 'none',
         backgroundColor: '#3B82F6',
@@ -208,12 +350,12 @@ const styles: { [key: string]: CSSProperties } = {
         alignItems: 'center',
         justifyContent: 'center',
         cursor: 'pointer',
-        boxShadow: '0 2px 6px rgba(59, 130, 246, 0.2)',
+        boxShadow: '0 2px 8px rgba(59, 130, 246, 0.2)',
         transition: 'transform 0.15s ease',
     },
     sendButton: {
-        width: '48px',
-        height: '48px',
+        width: '42px',
+        height: '42px',
         borderRadius: '50%',
         border: 'none',
         backgroundColor: 'var(--brand-purple)',
@@ -222,7 +364,7 @@ const styles: { [key: string]: CSSProperties } = {
         alignItems: 'center',
         justifyContent: 'center',
         cursor: 'pointer',
-        boxShadow: '0 2px 8px rgba(106, 75, 255, 0.25)',
+        boxShadow: '0 2px 10px rgba(106, 75, 255, 0.25)',
         transition: 'transform 0.15s ease',
     },
     disabledButton: {
