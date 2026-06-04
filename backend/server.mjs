@@ -205,13 +205,72 @@ async function deliverOtpEmail(email, otp, expiresAt) {
 
 async function campusAssistantReply(message, user) {
   const text = String(message || '').trim();
-  const lowerText = text.toLowerCase();
-  const eventCount = (await db.listEvents()).length;
+  if (!text) return 'Ask me about events, points, posting, chat, profile, or admin access.';
+
+  const events = await db.listEvents();
+  const eventCount = events.length;
   const postCount = (await db.listPosts()).length;
   const storyCount = (await db.listTopStories()).length;
   const globalChatCount = (await db.listChannelMessages('global'))?.length || 0;
 
-  if (!text) return 'Ask me about events, points, posting, chat, profile, or admin access.';
+  if (process.env.GEMINI_API_KEY) {
+    try {
+      const apiKey = process.env.GEMINI_API_KEY;
+      const systemPrompt = `You are "Hey GHR", the campus AI assistant for GHR (GH Raisoni) College on the HIVE platform.
+Your job is to help college students with their queries politely and in a friendly Hinglish tone (a mix of Hindi and English, as commonly spoken in campus).
+Keep your answers relatively concise, clear, and relevant.
+
+Here is the live data from the database to help you answer accurately:
+- Current User: ${user.name} (Role: ${user.role}, Points: ${user.points || 0})
+- Total Events in Database: ${eventCount}
+- Live Events list (upcoming/recent): ${JSON.stringify(events.slice(0, 10).map(e => ({ title: e.title, date: e.date, venue: e.venue, points: e.points, category: e.category })))}
+- Total Posts in Feed: ${postCount}
+- Top official stories count: ${storyCount}
+- Global Chat Message Count: ${globalChatCount}
+
+Guidelines:
+1. If the user asks about upcoming events, look at the Live Events list and mention actual events, venues, and points.
+2. If they ask about points or leaderboard, mention their points (${user.points || 0}) and explain they can earn points by registering and attending events.
+3. If they ask about creating events, explain that only Club Admins or College Admins can do that from the admin panel.
+4. If they ask about admin panel access, explain that only College Admins can access it.
+5. If they ask about OTP/emails, explain that OTP emails can be delivered to their inboxes using Resend.
+6. Try to be fun, casual, use student lingo like "bro", "bhai", "chill", etc., but keep it respectful.`;
+
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: text }],
+            }
+          ],
+          systemInstruction: {
+            parts: [{ text: systemPrompt }]
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Gemini API error: ${errText}`);
+      }
+
+      const data = await response.json();
+      const reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (reply) {
+        return reply.trim();
+      }
+    } catch (apiError) {
+      console.error('Gemini API failed, falling back to rule-based response:', apiError);
+    }
+  }
+
+  // Graceful fallback to rule-based assistant
+  const lowerText = text.toLowerCase();
   if (lowerText.includes('status') || lowerText.includes('working')) return `HIVE backend is working: ${postCount} posts, ${eventCount} events, ${storyCount} official stories, and ${globalChatCount} global chat messages are in the database.`;
   if (lowerText.includes('event')) return `Open Events to view campus events. There are ${eventCount} events right now. Club Admin and College Admin accounts can create events, and students can register to earn points.`;
   if (lowerText.includes('point') || lowerText.includes('leaderboard')) return `You currently have ${user.points || 0} points. Event registrations add points and the Leaderboard updates from the backend database.`;
@@ -219,12 +278,10 @@ async function campusAssistantReply(message, user) {
   if (lowerText.includes('admin') || lowerText.includes('block') || lowerText.includes('role')) return user.role === 'Admin'
     ? 'Admin mode is active for your account. Use Admin > User Control to change roles, block users, or delete accounts.'
     : 'Only College Admin accounts can open the Admin panel. The first verified user becomes College Admin unless ADMIN_EMAILS is configured.';
-  if (lowerText.includes('mail') || lowerText.includes('otp') || lowerText.includes('login')) return OTP_DELIVERY_MODE === 'email'
-    ? 'Login is college-email OTP based. Email OTP delivery is enabled on the backend.'
-    : 'Login is college-email OTP based. Local development shows OTP on screen; set RESEND_API_KEY and OTP_DELIVERY_MODE=email to send real email OTPs.';
+  if (lowerText.includes('mail') || lowerText.includes('otp') || lowerText.includes('login')) return 'Login is college-email OTP based. You can set up Resend for real email OTPs.';
   if (lowerText.includes('chat') || lowerText.includes('message')) return `Social Chat has campus channels. The global channel has ${globalChatCount} messages. Direct profile messages are stored separately in one-to-one conversations.`;
 
-  return `I noted: "${text}". For now I can help with HIVE navigation, backend status, events, posts, points, chat, and admin roles.`;
+  return `I noted: "${text}". For now I can help with HIVE navigation, backend status, events, posts, points, chat, and admin roles. (Install GEMINI_API_KEY for real AI chats!)`;
 }
 
 async function handleRoute(req, res) {
