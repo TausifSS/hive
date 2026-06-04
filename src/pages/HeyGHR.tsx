@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { CSSProperties, KeyboardEvent } from 'react';
-import { Bot, Mic, Send, UserRound, Sparkles } from 'lucide-react';
+import { Bot, Mic, Send, UserRound } from 'lucide-react';
 import { askAssistant } from '../lib/api';
 
 interface AssistantMessage {
@@ -39,6 +39,7 @@ const HeyGHRPage = () => {
     ]);
     const [input, setInput] = useState('');
     const [isSending, setIsSending] = useState(false);
+    const [isListening, setIsListening] = useState(false);
     const [error, setError] = useState('');
 
     const sendQuery = async (queryText: string) => {
@@ -73,13 +74,40 @@ const HeyGHRPage = () => {
     };
 
     const handleMicClick = () => {
-        setMessages((currentMessages) => [
-            ...currentMessages,
-            {
-                id: `voice-${Date.now()}`,
-                content: 'Voice input is not connected in this browser yet. Typed campus help is working now.',
-            },
-        ]);
+        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            setError('Speech recognition is not supported in this browser. Try Chrome or Edge.');
+            return;
+        }
+
+        const recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.lang = 'en-IN'; // Indian English / Hinglish accent support
+        recognition.interimResults = false;
+
+        recognition.onstart = () => {
+            setIsListening(true);
+            setError('');
+        };
+
+        recognition.onresult = (event: any) => {
+            const transcript = event.results[0][0].transcript as string;
+            if (transcript) {
+                setInput(transcript);
+            }
+        };
+
+        recognition.onerror = (event: any) => {
+            console.error('Speech recognition error:', event.error);
+            setError(`Voice error: ${event.error === 'not-allowed' ? 'Microphone permission blocked' : event.error}`);
+            setIsListening(false);
+        };
+
+        recognition.onend = () => {
+            setIsListening(false);
+        };
+
+        recognition.start();
     };
 
     const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -99,10 +127,6 @@ const HeyGHRPage = () => {
                         <h1 style={styles.title}>Hey GHR</h1>
                         <p style={styles.subtitle}>AI Campus Assistant • Connected to HIVE</p>
                     </div>
-                </div>
-                <div style={styles.aiBadge}>
-                    <Sparkles size={14} color="var(--brand-purple)" style={{ marginRight: '6px' }} />
-                    <span style={styles.aiBadgeText}>Gemini AI</span>
                 </div>
             </div>
 
@@ -143,14 +167,24 @@ const HeyGHRPage = () => {
             <div style={styles.inputArea}>
                 <input
                     type="text"
-                    placeholder="Ask me anything about GHR..."
+                    placeholder={isListening ? "Listening... Speak now!" : "Ask me anything about GHR..."}
                     value={input}
                     onChange={(event) => setInput(event.target.value)}
                     onKeyDown={handleKeyDown}
-                    style={styles.input}
+                    style={{
+                        ...styles.input,
+                        ...(isListening ? { borderColor: '#EF4444', backgroundColor: '#FEF2F2' } : {})
+                    }}
                 />
-                <button style={styles.micButton} onClick={handleMicClick} title="Voice input status">
-                    <Mic size={22} color="white" />
+                <button 
+                    style={{
+                        ...styles.micButton,
+                        ...(isListening ? styles.micActiveButton : {})
+                    }} 
+                    onClick={handleMicClick} 
+                    title="Voice input status"
+                >
+                    <Mic size={22} color="white" className={isListening ? "animate-pulse" : ""} />
                 </button>
                 <button
                     aria-label="Send assistant message"
@@ -208,19 +242,6 @@ const styles: { [key: string]: CSSProperties } = {
         color: '#6B7280',
         margin: '2px 0 0 0',
         fontWeight: 500,
-    },
-    aiBadge: {
-        display: 'flex',
-        alignItems: 'center',
-        backgroundColor: 'rgba(139, 92, 246, 0.08)',
-        border: '1px solid rgba(139, 92, 246, 0.15)',
-        padding: '6px 12px',
-        borderRadius: '20px',
-    },
-    aiBadgeText: {
-        fontSize: '12px',
-        fontWeight: '700',
-        color: 'var(--brand-purple)',
     },
     chatArea: {
         flex: 1,
@@ -351,7 +372,12 @@ const styles: { [key: string]: CSSProperties } = {
         justifyContent: 'center',
         cursor: 'pointer',
         boxShadow: '0 2px 8px rgba(59, 130, 246, 0.2)',
-        transition: 'transform 0.15s ease',
+        transition: 'all 0.2s ease',
+    },
+    micActiveButton: {
+        backgroundColor: '#EF4444',
+        transform: 'scale(1.1)',
+        boxShadow: '0 0 15px rgba(239, 68, 68, 0.5)',
     },
     sendButton: {
         width: '42px',
