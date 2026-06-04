@@ -428,7 +428,7 @@ async function createAvailableUserId(email) {
 }
 
 async function followUser(followerId, followingId) {
-  await dbQueryRun('INSERT INTO follows (follower_id, following_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING', [
+  await dbQueryRun('INSERT INTO follows (follower_id, following_id, created_at) VALUES (?, ?, ?) ON CONFLICT (follower_id, following_id) DO NOTHING', [
     followerId,
     followingId,
     new Date().toISOString()
@@ -807,7 +807,7 @@ async function registerForEvent(eventId, userId) {
   }
 
   const alreadyRegistered = event.registeredUserIds.includes(userId);
-  await dbQueryRun('INSERT INTO event_registrations (event_id, user_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING', [
+  await dbQueryRun('INSERT INTO event_registrations (event_id, user_id, created_at) VALUES (?, ?, ?) ON CONFLICT (event_id, user_id) DO NOTHING', [
     eventId,
     userId,
     new Date().toISOString()
@@ -830,7 +830,7 @@ async function verifyAttendance(eventId, userId) {
 
   const isAlreadyRegistered = event.registeredUserIds.includes(user.id);
   if (!isAlreadyRegistered) {
-    await dbQueryRun('INSERT INTO event_registrations (event_id, user_id, attended, created_at) VALUES (?, ?, 1, ?) ON CONFLICT DO NOTHING', [
+    await dbQueryRun('INSERT INTO event_registrations (event_id, user_id, attended, created_at) VALUES (?, ?, 1, ?) ON CONFLICT (event_id, user_id) DO NOTHING', [
       eventId,
       user.id,
       new Date().toISOString()
@@ -944,8 +944,8 @@ async function getOrCreateConversation(userA, userB) {
 
   const now = new Date().toISOString();
   await dbQueryRun('INSERT INTO conversations (id, updated_at) VALUES (?, ?)', [id, now]);
-  await dbQueryRun('INSERT INTO conversation_participants (conversation_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING', [id, userA]);
-  await dbQueryRun('INSERT INTO conversation_participants (conversation_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING', [id, userB]);
+  await dbQueryRun('INSERT INTO conversation_participants (conversation_id, user_id) VALUES (?, ?) ON CONFLICT (conversation_id, user_id) DO NOTHING', [id, userA]);
+  await dbQueryRun('INSERT INTO conversation_participants (conversation_id, user_id) VALUES (?, ?) ON CONFLICT (conversation_id, user_id) DO NOTHING', [id, userB]);
 
   return await getConversation(id);
 }
