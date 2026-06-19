@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /club
+Disallow: /settings
+Disallow: /api
+
+Sitemap: https://hive-ghrcem.vercel.app/sitemap.xml

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { CSSProperties, FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { Building2, FileCheck2, Lock, Mail, Shield, Upload, UserRound } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -289,6 +289,13 @@ const AuthPage = () => {
 
                     {error && <p style={styles.errorText}>{error}</p>}
                     {success && <p style={styles.successText}>{success}</p>}
+
+                    <div style={styles.footerLinks}>
+                        By continuing, you agree to our{' '}
+                        <Link to="/privacy" style={styles.footerLink}>Privacy Policy</Link>
+                        {' '}and{' '}
+                        <Link to="/terms" style={styles.footerLink}>Terms of Service</Link>.
+                    </div>
                 </div>
             </section>
 
@@ -376,6 +383,18 @@ const styles: { [key: string]: CSSProperties } = {
     modalBackdrop: { position: 'fixed', inset: 0, backgroundColor: 'rgba(17, 24, 39, 0.58)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', zIndex: 1000 },
     adminModal: { width: '100%', maxWidth: '420px', backgroundColor: 'white', borderRadius: '18px', padding: '26px', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' },
     modalIcon: { width: '56px', height: '56px', borderRadius: '50%', backgroundColor: '#EEF2FF', color: 'var(--brand-purple)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '14px' },
+    footerLinks: {
+        marginTop: '20px',
+        textAlign: 'center',
+        fontSize: '12px',
+        color: '#6B7280',
+        lineHeight: '1.5',
+    },
+    footerLink: {
+        color: 'var(--brand-purple)',
+        textDecoration: 'underline',
+        fontWeight: '600',
+    },
 };
 
 export default AuthPage;

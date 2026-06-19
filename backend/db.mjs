@@ -1251,6 +1251,34 @@ async function deletePostReport(reportId) {
   await dbQueryRun('DELETE FROM post_reports WHERE id = ?', [reportId]);
 }
 
+async function createBugReport({ userId, title, description, severity }) {
+  const id = randomUUID();
+  const createdAt = new Date().toISOString();
+  await dbQueryRun(`
+    INSERT INTO bug_reports (id, user_id, title, description, severity, status, created_at)
+    VALUES (?, ?, ?, ?, ?, 'open', ?)
+  `, [id, userId, title, description, severity, createdAt]);
+  return { id, userId, title, description, severity, status: 'open', createdAt };
+}
+
+async function listBugReports() {
+  return await dbQueryAll('SELECT * FROM bug_reports ORDER BY created_at DESC');
+}
+
+async function createAnalyticsEvent({ userId, eventType, eventData, url }) {
+  const id = randomUUID();
+  const createdAt = new Date().toISOString();
+  await dbQueryRun(`
+    INSERT INTO analytics_events (id, user_id, event_type, event_data, url, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `, [id, userId, eventType, eventData || null, url || null, createdAt]);
+  return { id, userId, eventType, eventData, url, createdAt };
+}
+
+async function listAnalyticsEvents() {
+  return await dbQueryAll('SELECT * FROM analytics_events ORDER BY created_at DESC');
+}
+
 async function createSchema() {
   await dbQueryExec(`
     CREATE TABLE IF NOT EXISTS users (
@@ -1507,6 +1535,29 @@ async function runMigrations() {
       created_at TEXT NOT NULL
     );
   `);
+
+  await dbQueryExec(`
+    CREATE TABLE IF NOT EXISTS bug_reports (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      created_at TEXT NOT NULL
+    );
+  `);
+
+  await dbQueryExec(`
+    CREATE TABLE IF NOT EXISTS analytics_events (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      event_type TEXT NOT NULL,
+      event_data TEXT,
+      url TEXT,
+      created_at TEXT NOT NULL
+    );
+  `);
 }
 
 async function removeLegacyDemoData() {
@@ -1666,6 +1717,10 @@ export const db = {
   listPostReports,
   deletePostReport,
   verifyAttendance,
+  createBugReport,
+  listBugReports,
+  createAnalyticsEvent,
+  listAnalyticsEvents,
 };
 
 export { DB_FILE, isPostgres };

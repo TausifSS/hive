@@ -6,11 +6,16 @@ import LeftSidebar from '../components/desktop/LeftSidebar';
 import RightSidebar from '../components/desktop/RightSidebar';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../lib/api';
+import { trackPageView } from '../lib/analytics';
 
 const AppLayout = ({ children }: { children: React.ReactNode }) => {
     const { user } = useAuth();
     const [isDesktop, setIsDesktop] = useState(window.innerWidth > 1024); // Breakpoint badhaya
     const location = useLocation(); // Current URL path lene ke liye
+
+    useEffect(() => {
+        trackPageView(location.pathname);
+    }, [location.pathname]);
 
     useEffect(() => {
         const handleResize = () => {

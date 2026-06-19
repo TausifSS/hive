@@ -14,6 +14,9 @@ import EventDetailsPage from './pages/EventDetails';
 import AuthPage from './pages/AuthPage';
 import AdminDashboardPage from './pages/AdminDashboard';
 import ClubPanelPage from './pages/ClubPanel';
+import PrivacyPolicyPage from './pages/PrivacyPolicy';
+import TermsPage from './pages/Terms';
+import CookieConsent from './components/CookieConsent';
 import { useAuth } from './context/AuthContext';
 import { roleHomePath } from './lib/api';
 
@@ -82,36 +85,46 @@ const App = () => {
 
   if (!user) {
     return (
-      <Routes>
-        <Route path="/auth" element={<AuthPage />} />
-        <Route path="*" element={<Navigate to="/auth" replace state={{ from: location }} />} />
-      </Routes>
+      <>
+        <Routes>
+          <Route path="/auth" element={<AuthPage />} />
+          <Route path="/privacy" element={<PrivacyPolicyPage />} />
+          <Route path="/terms" element={<TermsPage />} />
+          <Route path="*" element={<Navigate to="/auth" replace state={{ from: location }} />} />
+        </Routes>
+        <CookieConsent />
+      </>
     );
   }
 
   return (
-    <AppLayout>
-      <Routes>
-        <Route path="/" element={<Feed />} />
-        <Route path="/auth" element={<Navigate to={roleHomePath(user.role)} replace />} />
-        <Route path="/club" element={['club_admin', 'Admin'].includes(user.role) ? <ClubPanelPage /> : <Navigate to="/" replace />} />
-        <Route path="/events" element={<EventsPage />} />
-        <Route path="/ai" element={<HeyGHRPage />} />
-        <Route path="/chat" element={<SocialChatPage />} />
-        <Route path="/leaderboard" element={<LeaderboardPage />} />
-        <Route path="/top-stories" element={<TopStoriesPage />} />
-        <Route path="/profile" element={<ProfilePage />} />
-        <Route path="/profile/:userId" element={<ProfilePage />} />
-        <Route path="/PCprofile" element={<PCProfilePage />} />
-        <Route path="/PCprofile/:userId" element={<PCProfilePage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/messages" element={<MessagesPage />} />
-        <Route path="/messages/:userId" element={<MessagesPage />} />
-        <Route path="/event/:eventId" element={<EventDetailsPage />} />
-        <Route path="/admin" element={user.role === 'Admin' ? <AdminDashboardPage /> : <Navigate to="/" replace />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </AppLayout>
+    <>
+      <AppLayout>
+        <Routes>
+          <Route path="/" element={<Feed />} />
+          <Route path="/auth" element={<Navigate to={roleHomePath(user.role)} replace />} />
+          <Route path="/club" element={['club_admin', 'Admin'].includes(user.role) ? <ClubPanelPage /> : <Navigate to="/" replace />} />
+          <Route path="/events" element={<EventsPage />} />
+          <Route path="/ai" element={<HeyGHRPage />} />
+          <Route path="/chat" element={<SocialChatPage />} />
+          <Route path="/leaderboard" element={<LeaderboardPage />} />
+          <Route path="/top-stories" element={<TopStoriesPage />} />
+          <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/profile/:userId" element={<ProfilePage />} />
+          <Route path="/PCprofile" element={<PCProfilePage />} />
+          <Route path="/PCprofile/:userId" element={<PCProfilePage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/privacy" element={<PrivacyPolicyPage />} />
+          <Route path="/terms" element={<TermsPage />} />
+          <Route path="/messages" element={<MessagesPage />} />
+          <Route path="/messages/:userId" element={<MessagesPage />} />
+          <Route path="/event/:eventId" element={<EventDetailsPage />} />
+          <Route path="/admin" element={user.role === 'Admin' ? <AdminDashboardPage /> : <Navigate to="/" replace />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </AppLayout>
+      <CookieConsent />
+    </>
   );
 };
 

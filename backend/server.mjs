@@ -16,6 +16,25 @@ const MIN_PASSWORD_LENGTH = 6;
 
 const activeClients = [];
 
+const authRateLimits = new Map();
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const MAX_REQUESTS_PER_WINDOW = 5;
+
+function checkRateLimit(ip) {
+  const now = Date.now();
+  if (!authRateLimits.has(ip)) {
+    authRateLimits.set(ip, []);
+  }
+  const timestamps = authRateLimits.get(ip);
+  const activeTimestamps = timestamps.filter(t => now - t < RATE_LIMIT_WINDOW_MS);
+  if (activeTimestamps.length >= MAX_REQUESTS_PER_WINDOW) {
+    return true;
+  }
+  activeTimestamps.push(now);
+  authRateLimits.set(ip, activeTimestamps);
+  return false;
+}
+
 function broadcast(event, data) {
   const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
   for (const client of activeClients) {
@@ -294,6 +313,14 @@ async function handleRoute(req, res) {
   }
 
   const url = new URL(req.url || '/', `http://${req.headers.host}`);
+  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+  
+  if (url.pathname.startsWith('/api/auth/') && req.method === 'POST') {
+    if (checkRateLimit(clientIp)) {
+      send(req, res, 429, { error: 'Too many login or OTP attempts. Please try again in 1 minute.' });
+      return;
+    }
+  }
 
   if (url.pathname === '/api/updates' && req.method === 'GET') {
     const origin = req.headers.origin;
@@ -1522,6 +1549,61 @@ async function handleRoute(req, res) {
         createdAt: new Date().toISOString(),
       },
     });
+    return;
+  }
+
+  if (url.pathname === '/api/feedback/bug' && req.method === 'POST') {
+    const currentUser = await requireUser(req);
+    if (!currentUser) {
+      send(req, res, 401, { error: 'Authentication required' });
+      return;
+    }
+
+    const body = await parseBody(req);
+    if (!body.title || !body.description || !body.severity) {
+      send(req, res, 400, { error: 'title, description, and severity are required' });
+      return;
+    }
+
+    if (body.title.length > 200 || body.description.length > 2000) {
+      send(req, res, 400, { error: 'Title or description is too long' });
+      return;
+    }
+
+    try {
+      const report = await db.createBugReport({
+        userId: currentUser.id,
+        title: body.title,
+        description: body.description,
+        severity: body.severity,
+      });
+      send(req, res, 201, { success: true, report });
+    } catch (e) {
+      send(req, res, 500, { error: 'Failed to create bug report' });
+    }
+    return;
+  }
+
+  if (url.pathname === '/api/analytics' && req.method === 'POST') {
+    const currentUser = await requireUser(req);
+    const body = await parseBody(req);
+
+    if (!body.eventType) {
+      send(req, res, 400, { error: 'eventType is required' });
+      return;
+    }
+
+    try {
+      await db.createAnalyticsEvent({
+        userId: currentUser?.id || null,
+        eventType: body.eventType,
+        eventData: body.eventData ? JSON.stringify(body.eventData) : null,
+        url: body.url || null,
+      });
+      send(req, res, 200, { success: true });
+    } catch (e) {
+      send(req, res, 200, { success: false, note: 'silently handled' });
+    }
     return;
   }
 
